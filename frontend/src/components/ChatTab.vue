@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue';
+import { nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { api, stelVraag, type Bericht, type Gesprek, type Kennisbank } from '../api';
 import AntwoordTekst from './AntwoordTekst.vue';
 
@@ -37,8 +37,72 @@ function nieuw() {
   laadGesprekken();
 }
 
+// Niet dit component scrolt maar de nldd-page eromheen. scrollIntoView zou het einde onder de
+// sticky invoerbalk leggen; daarom de scroller van de pagina zelf helemaal naar beneden.
+type Pagina = HTMLElement & { scrollTarget?: HTMLElement; scrollEventTarget?: EventTarget };
+const wortel = ref<HTMLElement | null>(null);
+function pagina(): Pagina | null {
+  return (wortel.value?.closest('nldd-page') as Pagina | null) ?? null;
+}
+function scroller(): HTMLElement | null {
+  return pagina()?.scrollTarget ?? null;
+}
+
 function scrollNaarEinde() {
-  nextTick(() => document.getElementById('chat-einde')?.scrollIntoView({ block: 'end' }));
+  nextTick(() => {
+    const s = scroller();
+    if (s) s.scrollTop = s.scrollHeight;
+  });
+}
+
+// Meescrollen met het antwoord tot de gebruiker zelf omhoog scrolt; wie weer helemaal
+// onderaan komt, volgt weer. Een drempel ("dicht bij de bodem") werkt niet: een kleine
+// scrollstap omhoog valt binnen de drempel en het volgende token trekt je terug.
+let volg = true;
+let vorigeTop = 0;
+let vorigeHoogte = 0;
+function opScroll() {
+  const s = scroller();
+  if (!s) return;
+  // Krimpt de inhoud even, dan zakt scrollTop ook zonder dat iemand scrolt; dat telt niet.
+  // Wie naar beneden scrolt, hoeft het groeiende antwoord niet tot op de pixel in te halen.
+  const afstand = s.scrollHeight - s.scrollTop - s.clientHeight;
+  const omhoog = s.scrollTop < vorigeTop - 1 && s.scrollHeight >= vorigeHoogte;
+  if (omhoog) volg = false;
+  else if (afstand < 8 || (s.scrollTop > vorigeTop && afstand < 64)) volg = true;
+  vorigeTop = s.scrollTop;
+  vorigeHoogte = s.scrollHeight;
+}
+// Wiel, toetsen en vegen stoppen het volgen meteen, nog voor het scroll-event: die scrollen
+// vloeiend, dus de eerste stap is nog "onderaan" en het volgende token zou je terugtrekken.
+function opWiel(e: WheelEvent) {
+  if (e.deltaY < 0) volg = false;
+}
+const omhoogToetsen = new Set(['ArrowUp', 'PageUp', 'Home']);
+function opToets(e: KeyboardEvent) {
+  // In het invoerveld verplaatsen pijltjes de cursor, niet de pagina.
+  if ((e.target as Element).closest?.('nldd-multi-line-text-field')) return;
+  if (omhoogToetsen.has(e.key) || (e.key === ' ' && e.shiftKey)) volg = false;
+}
+let vingerY = 0;
+function opAanraken(e: TouchEvent) {
+  vingerY = e.touches[0]?.clientY ?? 0;
+}
+function opVegen(e: TouchEvent) {
+  const y = e.touches[0]?.clientY ?? vingerY;
+  if (y > vingerY) volg = false;
+  vingerY = y;
+}
+
+// In smalle schermen scrolt het document in plaats van de pagina; daarom bij elke vraag
+// opnieuw koppelen aan wat de pagina op dat moment als scroller opgeeft.
+let gekoppeld: EventTarget | null = null;
+function koppelScroll() {
+  const doel = pagina()?.scrollEventTarget ?? null;
+  if (doel === gekoppeld) return;
+  gekoppeld?.removeEventListener('scroll', opScroll);
+  doel?.addEventListener('scroll', opScroll, { passive: true });
+  gekoppeld = doel;
 }
 
 async function verstuur(vraag: string) {
@@ -55,6 +119,8 @@ async function verstuur(vraag: string) {
     berichten.value.push({ id: `a-${nu}`, rol: 'assistant', inhoud: '', bronnen: [], createdAt: nu });
     // Via de reactieve array muteren, zodat Vue elke token ziet.
     const antwoord = berichten.value[berichten.value.length - 1];
+    koppelScroll();
+    volg = true;
     scrollNaarEinde();
 
     await stelVraag(
@@ -64,7 +130,7 @@ async function verstuur(vraag: string) {
         bronnen: (b) => (antwoord.bronnen = b),
         token: (t) => {
           antwoord.inhoud += t;
-          scrollNaarEinde();
+          if (volg) scrollNaarEinde();
         },
       },
       controller.signal,
@@ -81,7 +147,22 @@ function stop() {
   controller?.abort();
 }
 
-onMounted(laadGesprekken);
+onMounted(() => {
+  laadGesprekken();
+  const p = pagina();
+  p?.addEventListener('wheel', opWiel, { passive: true });
+  window.addEventListener('keydown', opToets);
+  p?.addEventListener('touchstart', opAanraken, { passive: true });
+  p?.addEventListener('touchmove', opVegen, { passive: true });
+});
+onUnmounted(() => {
+  const p = pagina();
+  p?.removeEventListener('wheel', opWiel);
+  window.removeEventListener('keydown', opToets);
+  p?.removeEventListener('touchstart', opAanraken);
+  p?.removeEventListener('touchmove', opVegen);
+  gekoppeld?.removeEventListener('scroll', opScroll);
+});
 defineExpose({ actief, bezig, verstuur, stop });
 
 // Alleen de bronnen waar het antwoord echt naar verwijst, zoals [2] of [1][3].
@@ -96,7 +177,7 @@ function datum(iso: string) {
 </script>
 
 <template>
-  <nldd-container gap="24">
+  <nldd-container ref="wortel" gap="24">
     <nldd-container layout="row" gap="8">
       <nldd-button
         v-if="actief"
@@ -166,7 +247,6 @@ function datum(iso: string) {
           </nldd-container>
         </nldd-container>
       </template>
-      <span id="chat-einde"></span>
     </nldd-container>
   </nldd-container>
 </template>

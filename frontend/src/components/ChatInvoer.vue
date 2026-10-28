@@ -30,7 +30,7 @@ function toets(e: KeyboardEvent) {
 </script>
 
 <template>
-  <nldd-container padding="16" gap="8">
+  <nldd-container class="chat-invoer" padding="16" gap="8">
     <nldd-form-field :label="vervolg ? 'Stel een vervolgvraag' : 'Je vraag'" supporting-label="Enter verstuurt, Shift+Enter voor een nieuwe regel">
       <nldd-multi-line-text-field
         :key="veldKey"
@@ -50,3 +50,10 @@ function toets(e: KeyboardEvent) {
     </nldd-container>
   </nldd-container>
 </template>
+
+<style scoped>
+/* De sticky footer van nldd-page is maar 95% dekkend; daardoor schemert het antwoord erdoorheen. */
+.chat-invoer {
+  background-color: var(--context-parent-background-color, var(--semantics-surfaces-base-background-color));
+}
+</style>
