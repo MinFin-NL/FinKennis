@@ -18,6 +18,7 @@ _TITELS = {
     415: "Bestandstype niet ondersteund",
     422: "Ongeldige invoer",
     500: "Interne fout",
+    502: "Fout bij een achterliggende dienst",
     503: "Dienst niet beschikbaar",
 }
 

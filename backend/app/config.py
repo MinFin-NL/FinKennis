@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     auth_mode: Literal["none", "oidc"] = "none"
     oidc_issuer: str = "http://localhost:8180/realms/finkennis"
     oidc_audience: str = "finkennis-api"
+    # Service account voor gebruikersbeheer via de Keycloak Admin REST API.
+    oidc_admin_client_id: str = "finkennis-admin"
+    oidc_admin_client_secret: str = "dev-admin-secret-change-me"
 
 
 @lru_cache

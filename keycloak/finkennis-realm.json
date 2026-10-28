@@ -3,12 +3,27 @@
   "enabled": true,
   "displayName": "FinKennis",
   "internationalizationEnabled": true,
-  "supportedLocales": ["nl", "en"],
+  "supportedLocales": [
+    "nl",
+    "en"
+  ],
   "defaultLocale": "nl",
   "loginWithEmailAllowed": true,
   "registrationAllowed": false,
   "sslRequired": "external",
   "accessTokenLifespan": 300,
+  "roles": {
+    "realm": [
+      {
+        "name": "gebruiker",
+        "description": "Mag FinKennis gebruiken: eigen kennisbanken en gesprekken"
+      },
+      {
+        "name": "beheerder",
+        "description": "Mag gebruikers van FinKennis beheren"
+      }
+    ]
+  },
   "clients": [
     {
       "clientId": "finkennis-frontend",
@@ -19,8 +34,12 @@
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
-      "redirectUris": ["http://localhost:5190/*"],
-      "webOrigins": ["http://localhost:5190"],
+      "redirectUris": [
+        "http://localhost:5190/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5190"
+      ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "http://localhost:5190/*"
@@ -37,6 +56,20 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "finkennis-admin",
+      "name": "FinKennis gebruikersbeheer",
+      "description": "Service account waarmee de backend gebruikers beheert via de Admin REST API",
+      "enabled": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "secret": "dev-admin-secret-change-me",
+      "clientAuthenticatorType": "client-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
     }
   ],
   "users": [
@@ -47,7 +80,17 @@
       "emailVerified": true,
       "firstName": "Anna",
       "lastName": "de Vries",
-      "credentials": [{ "type": "password", "value": "anna", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "anna",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "gebruiker",
+        "beheerder"
+      ]
     },
     {
       "username": "bram",
@@ -56,7 +99,28 @@
       "emailVerified": true,
       "firstName": "Bram",
       "lastName": "Jansen",
-      "credentials": [{ "type": "password", "value": "bram", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "bram",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "gebruiker"
+      ]
+    },
+    {
+      "username": "service-account-finkennis-admin",
+      "enabled": true,
+      "serviceAccountClientId": "finkennis-admin",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "view-realm"
+        ]
+      }
     }
   ]
 }

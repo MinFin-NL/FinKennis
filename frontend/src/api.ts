@@ -51,6 +51,30 @@ export interface GesprekDetail extends Gesprek {
   berichten: Bericht[];
 }
 
+export interface Mij {
+  sub: string;
+  naam: string | null;
+  email: string | null;
+  beheerder: boolean;
+}
+
+export interface Gebruiker {
+  id: string;
+  gebruikersnaam: string | null;
+  voornaam: string | null;
+  achternaam: string | null;
+  email: string | null;
+  actief: boolean;
+  beheerder: boolean;
+  zelf: boolean;
+  aantalKennisbanken: number;
+}
+
+export interface TijdelijkWachtwoord {
+  id: string;
+  tijdelijkWachtwoord: string;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -114,6 +138,19 @@ export const api = {
     request<Gesprek>(`/kennisbanken/${kbId}/gesprekken`, { method: 'POST', body: '{}' }),
   gesprek: (id: string) => request<GesprekDetail>(`/gesprekken/${id}`),
   verwijderGesprek: (id: string) => request<void>(`/gesprekken/${id}`, { method: 'DELETE' }),
+
+  mij: () => request<Mij>('/mij'),
+  gebruikers: () => request<Gebruiker[]>('/gebruikers'),
+  maakGebruiker: (voornaam: string, achternaam: string, email: string, beheerder: boolean) =>
+    request<TijdelijkWachtwoord>('/gebruikers', {
+      method: 'POST',
+      body: JSON.stringify({ voornaam, achternaam, email, beheerder }),
+    }),
+  wijzigGebruiker: (id: string, wijziging: { actief?: boolean; beheerder?: boolean }) =>
+    request<void>(`/gebruikers/${id}`, { method: 'PATCH', body: JSON.stringify(wijziging) }),
+  resetWachtwoord: (id: string) =>
+    request<TijdelijkWachtwoord>(`/gebruikers/${id}/wachtwoord-reset`, { method: 'POST' }),
+  verwijderGebruiker: (id: string) => request<void>(`/gebruikers/${id}`, { method: 'DELETE' }),
 };
 
 export interface StreamHandlers {

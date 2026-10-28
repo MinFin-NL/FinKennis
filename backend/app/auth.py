@@ -2,6 +2,11 @@
 
 AUTH_MODE=none: lokaal ontwikkelen, iedereen is dezelfde dev-gebruiker.
 AUTH_MODE=oidc: een bearer-token van Keycloak (of een andere OIDC-provider) is verplicht.
+
+Er zijn twee rollen. Iedereen die inlogt is gebruiker: eigen kennisbanken en gesprekken.
+De realm-rol 'beheerder' mag daarnaast gebruikers beheren. Rollen komen uit de claim
+realm_access.roles van het access token; dat leeft vijf minuten, dus een gewijzigde rol
+telt binnen vijf minuten.
 """
 
 import asyncio
@@ -14,12 +19,19 @@ from fastapi import Depends, HTTPException, Request
 from app.config import Settings, get_settings
 
 DEV_SUB = "local-dev"
+BEHEERDER = "beheerder"
 
 
 @dataclass(frozen=True)
 class User:
     sub: str
     naam: str | None = None
+    email: str | None = None
+    rollen: frozenset[str] = frozenset()
+
+    @property
+    def beheerder(self) -> bool:
+        return BEHEERDER in self.rollen
 
 
 _jwks_clients: dict[str, jwt.PyJWKClient] = {}
@@ -47,7 +59,8 @@ async def current_user(
     request: Request, settings: Annotated[Settings, Depends(get_settings)]
 ) -> User:
     if settings.auth_mode == "none":
-        return User(sub=DEV_SUB, naam="Lokale gebruiker")
+        # Lokaal ben je ook beheerder; gebruikersbeheer zelf vraagt wel om Keycloak.
+        return User(sub=DEV_SUB, naam="Lokale gebruiker", rollen=frozenset({BEHEERDER}))
 
     header = request.headers.get("authorization", "")
     scheme, _, token = header.partition(" ")
@@ -67,7 +80,21 @@ async def current_user(
     except jwt.PyJWTError as e:
         raise _unauthorized(f"Ongeldig token: {e}") from e
 
-    return User(sub=claims["sub"], naam=claims.get("name") or claims.get("preferred_username"))
+    return User(
+        sub=claims["sub"],
+        naam=claims.get("name") or claims.get("preferred_username"),
+        email=claims.get("email"),
+        rollen=frozenset((claims.get("realm_access") or {}).get("roles") or []),
+    )
 
 
 CurrentUser = Annotated[User, Depends(current_user)]
+
+
+def require_beheerder(user: CurrentUser) -> User:
+    if not user.beheerder:
+        raise HTTPException(403, "Alleen een beheerder mag dit.")
+    return user
+
+
+Beheerder = Annotated[User, Depends(require_beheerder)]

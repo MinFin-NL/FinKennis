@@ -7,11 +7,12 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api import documenten, gesprekken, kennisbanken
+from app.api import documenten, gebruikers, gesprekken, kennisbanken
 from app.auth import _signing_key
 from app.config import get_settings
 from app.db import SessionLocal, engine
 from app.errors import install_handlers
+from app.keycloak import KeycloakAdmin
 from app.llm.ollama import OllamaClient, chatmodel
 from app.rag.ingest_worker import requeue_stuck, run_worker
 
@@ -29,6 +30,11 @@ async def lifespan(app: FastAPI):
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     app.state.ollama = OllamaClient(settings.ollama_url, settings.embed_model)
     app.state.chatmodel = chatmodel(settings.ollama_url, settings.chat_model)
+    app.state.keycloak = None
+    if settings.auth_mode == "oidc":
+        app.state.keycloak = KeycloakAdmin(
+            settings.oidc_issuer, settings.oidc_admin_client_id, settings.oidc_admin_client_secret
+        )
 
     workers: list[asyncio.Task] = []
     if settings.ingest_worker_enabled:
@@ -44,6 +50,8 @@ async def lifespan(app: FastAPI):
         with suppress(asyncio.CancelledError):
             await w
     await app.state.ollama.aclose()
+    if app.state.keycloak:
+        await app.state.keycloak.aclose()
     await engine.dispose()
 
 
@@ -79,6 +87,8 @@ def create_app() -> FastAPI:
     v1.include_router(documenten.router)
     v1.include_router(gesprekken.kb_router)
     v1.include_router(gesprekken.router)
+    v1.include_router(gebruikers.mij_router)
+    v1.include_router(gebruikers.router)
 
     @v1.get("/health", tags=["Beheer"])
     async def health():

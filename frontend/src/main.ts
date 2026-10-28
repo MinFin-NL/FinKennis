@@ -6,7 +6,8 @@ import '@nldd/design-system/styles';
 import { createApp } from 'vue';
 import App from './App.vue';
 import { initAuth } from './auth';
+import Landingspagina from './components/Landingspagina.vue';
 
 initAuth().then((ingelogd) => {
-  if (ingelogd) createApp(App).mount('#app');
+  createApp(ingelogd ? App : Landingspagina).mount('#app');
 });

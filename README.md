@@ -86,12 +86,34 @@ voor Docker Compose.
 
 ## Inloggen met Keycloak
 
-Met `AUTH_MODE=oidc` heeft elke gebruiker zijn eigen kennisbanken. Een kennisbank van een
+Met `AUTH_MODE=oidc` ziet wie niet is ingelogd eerst een landingspagina met de knop "Inloggen
+met SSO". Elke gebruiker heeft zijn eigen kennisbanken en gesprekken. Een kennisbank van een
 ander geeft een 404: de API verraadt niet dat hij bestaat.
 
+Er zijn twee realm-rollen:
+
+| Rol | Mag |
+| --- | --- |
+| `gebruiker` | Eigen kennisbanken maken, documenten uploaden en er vragen over stellen. |
+| `beheerder` | Daarnaast gebruikersbeheer, via het accountmenu rechtsboven in de zijbalk. |
+
+Gebruikersbeheer werkt zoals in de invulhulp: een beheerder maakt een gebruiker aan, die
+krijgt een tijdelijk wachtwoord en kiest bij de eerste login een eigen wachtwoord. Een
+beheerder kan ook wachtwoorden resetten, de beheerdersrol toekennen of afnemen, gebruikers
+(de)activeren en verwijderen. Bij verwijderen gaan de kennisbanken van die gebruiker mee,
+met alle documenten en gesprekken. Een beheerder kan zichzelf niet deactiveren, verwijderen
+of de beheerdersrol afnemen. De backend praat daarvoor met de Keycloak Admin REST API via
+het service account van de client `finkennis-admin` (rollen `manage-users`, `view-users` en
+`view-realm`). Rollen zitten in het access token; een gewijzigde rol telt binnen vijf
+minuten.
+
 ```bash
-make auth   # start Keycloak op :8180 met realm 'finkennis' en testgebruikers anna/anna en bram/bram
+make auth   # start Keycloak op :8180 met realm 'finkennis'
+            # testgebruikers: anna/anna (beheerder) en bram/bram (gebruiker)
 ```
+
+Draaide Keycloak al met een oudere versie van de realm, dan slaat de import hem over. Maak
+de container dan opnieuw aan: `docker compose --profile auth rm -sf keycloak && make auth`.
 
 Zet dan in `.env`:
 
@@ -99,6 +121,8 @@ Zet dan in `.env`:
 AUTH_MODE=oidc
 OIDC_ISSUER=http://localhost:8180/realms/finkennis
 OIDC_AUDIENCE=finkennis-api
+OIDC_ADMIN_CLIENT_ID=finkennis-admin
+OIDC_ADMIN_CLIENT_SECRET=dev-admin-secret-change-me
 ```
 
 en in `frontend/.env`:
@@ -130,6 +154,10 @@ interactieve weergave staat op `/api/v1/docs`.
 | `GET` `POST` | `/kennisbanken/{id}/gesprekken` | |
 | `GET` `DELETE` | `/gesprekken/{id}` | Met alle berichten |
 | `POST` | `/gesprekken/{id}/berichten` | Vraag stellen; antwoord als `text/event-stream` (`bronnen`, `token`, `klaar`, `fout`) |
+| `GET` | `/mij` | De ingelogde gebruiker, met `beheerder` |
+| `GET` `POST` | `/gebruikers` | Alleen beheerder. Aanmaken geeft een tijdelijk wachtwoord |
+| `PATCH` `DELETE` | `/gebruikers/{id}` | Alleen beheerder. `actief`, `beheerder` |
+| `POST` | `/gebruikers/{id}/wachtwoord-reset` | Alleen beheerder. Nieuw tijdelijk wachtwoord |
 | `GET` | `/health` | Database en Ollama bereikbaar? |
 
 ## Ontwikkelen

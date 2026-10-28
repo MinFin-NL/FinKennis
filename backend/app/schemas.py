@@ -70,3 +70,39 @@ class GesprekOut(Schema):
 
 class GesprekDetail(GesprekOut):
     berichten: list[BerichtOut]
+
+
+class MijOut(Schema):
+    sub: str
+    naam: str | None
+    email: str | None
+    beheerder: bool
+
+
+class GebruikerOut(Schema):
+    id: str
+    gebruikersnaam: str | None
+    voornaam: str | None
+    achternaam: str | None
+    email: str | None
+    actief: bool
+    beheerder: bool
+    zelf: bool
+    aantal_kennisbanken: int
+
+
+class GebruikerIn(Schema):
+    voornaam: str = Field(min_length=1, max_length=100)
+    achternaam: str = Field(min_length=1, max_length=100)
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=254)
+    beheerder: bool = False
+
+
+class GebruikerPatch(Schema):
+    actief: bool | None = None
+    beheerder: bool | None = None
+
+
+class TijdelijkWachtwoord(Schema):
+    id: str
+    tijdelijk_wachtwoord: str

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { api, type Kennisbank } from './api';
+import { api, type Kennisbank, type Mij } from './api';
 import { authEnabled, gebruikersnaam, logout } from './auth';
+import Gebruikersbeheer from './components/Gebruikersbeheer.vue';
 import KennisbankSheet from './components/KennisbankSheet.vue';
 import KennisbankView from './components/KennisbankView.vue';
 
@@ -9,13 +10,20 @@ const kennisbanken = ref<Kennisbank[]>([]);
 const geladen = ref(false);
 const fout = ref<string | null>(null);
 const sheetOpen = ref(false);
+const ik = ref<Mij | null>(null);
 
-// Eenvoudige hash-router: #/kennisbanken/<id>. Zo werken links, de terugknop en herladen.
+// Eenvoudige hash-router: #/kennisbanken/<id> of #/gebruikers. Zo werken links, de terugknop
+// en herladen.
 const huidigId = ref<string | null>(null);
+const beheerOpen = ref(false);
 function leesHash() {
   const m = window.location.hash.match(/^#\/kennisbanken\/([0-9a-f-]+)/);
   huidigId.value = m ? m[1] : null;
+  beheerOpen.value = window.location.hash === '#/gebruikers';
 }
+// Gebruikersbeheer loopt via de Keycloak Admin API, dus alleen met inloggen.
+const magBeheren = computed(() => authEnabled && !!ik.value?.beheerder);
+const accountNaam = computed(() => ik.value?.naam ?? gebruikersnaam() ?? 'Account');
 const huidig = computed(() => kennisbanken.value.find((k) => k.id === huidigId.value) ?? null);
 
 async function laad() {
@@ -52,6 +60,10 @@ onMounted(() => {
   leesHash();
   window.addEventListener('hashchange', leesHash);
   laad();
+  api
+    .mij()
+    .then((m) => (ik.value = m))
+    .catch(() => (ik.value = null));
 });
 onUnmounted(() => window.removeEventListener('hashchange', leesHash));
 </script>
@@ -83,10 +95,26 @@ onUnmounted(() => window.removeEventListener('hashchange', leesHash));
                 <nldd-icon-button
                   v-if="authEnabled"
                   slot="toolbar"
-                  icon="logout"
-                  :text="`Uitloggen (${gebruikersnaam() ?? 'gebruiker'})`"
-                  @click="logout()"
-                ></nldd-icon-button>
+                  icon="person-circle"
+                  :text="`Account: ${accountNaam}`"
+                  expandable
+                >
+                  <nldd-menu slot="popup" accessible-label="Accountmenu">
+                    <nldd-container slot="header" padding-inline="16" padding-block="12">
+                      <nldd-identity
+                        :text="accountNaam"
+                        :supporting-text="ik?.email && ik.email !== accountNaam ? ik.email : ''"
+                      ></nldd-identity>
+                    </nldd-container>
+                    <nldd-menu-item
+                      v-if="magBeheren"
+                      icon="person-2"
+                      text="Gebruikersbeheer"
+                      href="#/gebruikers"
+                    ></nldd-menu-item>
+                    <nldd-menu-item icon="arrow-right-out-bucket" text="Uitloggen" @select="logout()"></nldd-menu-item>
+                  </nldd-menu>
+                </nldd-icon-button>
               </nldd-top-title-bar>
 
               <nldd-simple-section>
@@ -101,7 +129,7 @@ onUnmounted(() => window.removeEventListener('hashchange', leesHash));
                     :href="`#/kennisbanken/${kb.id}`"
                     :current="kb.id === huidigId"
                   >
-                    <nldd-icon-cell icon="books"></nldd-icon-cell>
+                    <nldd-icon-cell icon="books-vertical"></nldd-icon-cell>
                     <nldd-spacer-cell size="8"></nldd-spacer-cell>
                     <nldd-text-cell
                       :text="kb.naam"
@@ -110,7 +138,7 @@ onUnmounted(() => window.removeEventListener('hashchange', leesHash));
                   </nldd-list-item>
                   <nldd-inline-dialog
                     slot="empty"
-                    icon="books"
+                    icon="books-vertical"
                     text="Nog geen kennisbanken"
                     supporting-text="Maak een kennisbank en voeg documenten toe om er vragen over te stellen."
                   >
@@ -128,9 +156,10 @@ onUnmounted(() => window.removeEventListener('hashchange', leesHash));
           </nldd-split-view-pane>
 
           <!-- Als property binden (camelCase): een kebab-case binding zet het attribuut ook bij false. -->
-          <nldd-split-view-pane slot="main" :hasContent="!!huidig">
+          <nldd-split-view-pane slot="main" :hasContent="!!huidig || (beheerOpen && magBeheren)">
+            <Gebruikersbeheer v-if="beheerOpen && magBeheren" @terug="naarLijst" />
             <KennisbankView
-              v-if="huidig"
+              v-else-if="huidig"
               :key="huidig.id"
               :kennisbank="huidig"
               @bijgewerkt="bijgewerkt"

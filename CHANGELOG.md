@@ -18,6 +18,14 @@ project volgt [Semantic Versioning](https://semver.org/lang/nl/).
   gesprekken blijven bewaard.
 - Vervolgvragen in een gesprek: een vraag als "en voor deeltijders?" wordt met het eerdere
   gesprek herschreven tot een zelfstandige zoekvraag, zodat de juiste bronnen gevonden worden.
+- Landingspagina met "Inloggen met SSO" voor wie nog niet is ingelogd, in de stijl van de
+  invulhulp. Na het inloggen een accountmenu met naam, e-mail en uitloggen.
+- Twee rollen: `gebruiker` (eigen kennisbanken en gesprekken) en `beheerder` (daarnaast
+  gebruikersbeheer). De rol komt uit het access token van Keycloak.
+- Gebruikersbeheer voor beheerders: gebruikers aanmaken met een tijdelijk wachtwoord,
+  wachtwoord resetten, beheerdersrol toekennen of afnemen, (de)activeren en verwijderen. Bij
+  verwijderen gaan ook de kennisbanken, documenten en gesprekken van die gebruiker weg. Loopt
+  via de Keycloak Admin REST API met een service account (`finkennis-admin`).
 
 ### Gewijzigd
 
