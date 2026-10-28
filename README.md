@@ -1,5 +1,11 @@
 # FinKennis
 
+> ⚠️ **Proof of concept.** Dit is een vroege proof of concept van het Innovatieteam MinFin en
+> niet klaar voor productie. We zoeken feedback en mensen om mee samen te werken aan de
+> volgende stap: mail [innovatiemanagementfinancien@minfin.nl](mailto:innovatiemanagementfinancien@minfin.nl) of
+> open een issue als je ideeën hebt. De meeste code is gegenereerd met Claude Code; zie
+> [DISCLAIMER.md](DISCLAIMER.md) en de [verantwoording van het AI-gebruik](docs/ai-verantwoording.md).
+
 FinKennis is een applicatie waarin je **kennisbanken** maakt: een verzameling documenten waar
 je met een AI-assistent over kunt praten. Je uploadt documenten (PDF, Word, PowerPoint, Excel,
 ODT, HTML, Markdown, tekst of CSV). FinKennis leest ze, deelt ze op in fragmenten en maakt ze

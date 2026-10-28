@@ -40,6 +40,9 @@ function toets(e: KeyboardEvent) {
         @input="vraag = waarde($event)"
         @keydown="toets"
       ></nldd-multi-line-text-field>
+      <nldd-form-field-help-text>
+        Antwoorden worden gemaakt door AI en kunnen fouten bevatten. Controleer ze in de bronnen.
+      </nldd-form-field-help-text>
     </nldd-form-field>
     <nldd-container layout="row" horizontal-alignment="right" gap="8">
       <nldd-button v-if="bezig" appearance="secondary" text="Stop" @click="emit('stop')"></nldd-button>

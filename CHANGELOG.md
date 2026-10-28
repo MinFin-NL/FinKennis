@@ -19,3 +19,7 @@ project volgt [Semantic Versioning](https://semver.org/lang/nl/).
 - Interface met het NLDD Designsysteem, ook bruikbaar op mobiel.
 - Optionele login via OIDC (Keycloak). Elke gebruiker ziet alleen zijn eigen kennisbanken.
 - REST-API volgens de NL GOV API Design Rules, met OpenAPI-specificatie.
+- DISCLAIMER.md, een verantwoording van het AI-gebruik (`docs/ai-verantwoording.md`) en een
+  vaste melding in de chat dat antwoorden door AI worden gemaakt.
+- Oranje statusbalk bovenaan de app, gelijk aan de invulhulp: bètaversie, met contactadres van
+  het Innovatieteam MinFin.
