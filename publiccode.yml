@@ -1,0 +1,72 @@
+publiccodeYmlVersion: "0.4"
+
+name: FinKennis
+url: "https://github.com/MinFin-NL/FinKennis"
+softwareVersion: "0.1.0"
+releaseDate: "2026-10-28"
+platforms:
+  - web
+
+categories:
+  - knowledge-management
+  - document-management
+
+developmentStatus: development
+softwareType: standalone/web
+
+description:
+  nl:
+    shortDescription: >-
+      Kennisbanken met documenten waar je met een lokale AI-assistent over praat,
+      met bronverwijzingen.
+    longDescription: >
+      FinKennis is een webapplicatie waarin gebruikers kennisbanken maken: een
+      verzameling documenten waarover ze vragen stellen aan een AI-assistent.
+      Documenten (PDF, Word, PowerPoint, Excel, ODT, HTML, Markdown, tekst en CSV)
+      worden op de achtergrond ingelezen met docling. Ze worden opgedeeld in
+      fragmenten met behoud van kopjes en pagina's, en doorzoekbaar gemaakt met
+      embeddings in PostgreSQL met pgvector.
+
+
+      Bij een vraag zoekt FinKennis op betekenis en op trefwoorden tegelijk, en
+      voegt de resultaten samen. Een taalmodel dat lokaal draait via Ollama geeft
+      antwoord en verwijst naar de bronnen: bestand, pagina en kopje. Documenten
+      gaan daardoor niet naar een externe AI-dienst.
+
+
+      De interface is gebouwd met het NLDD Designsysteem en voldoet aan WCAG 2.1
+      AA. Met een koppeling aan Keycloak (OpenID Connect) heeft elke gebruiker
+      eigen kennisbanken. De API volgt de NL GOV API Design Rules.
+    features:
+      - Kennisbanken aanmaken en beheren
+      - Documenten uploaden en automatisch inlezen
+      - Hybride zoeken (semantisch en full-text)
+      - Chat met bronverwijzingen
+      - Lokale taalmodellen via Ollama
+      - Inloggen via OpenID Connect (Keycloak)
+
+legal:
+  license: EUPL-1.2
+  mainCopyrightOwner: Ministry of Finance (The Netherlands)
+  repoOwner: Ministry of Finance (The Netherlands)
+
+maintenance:
+  type: internal
+  contacts:
+    - name: Ministry of Finance (The Netherlands)
+      email: github@minfin.nl
+
+localisation:
+  localisationReady: false
+  availableLanguages:
+    - nl
+
+dependsOn:
+  open:
+    - name: PostgreSQL
+      versionMin: "17"
+    - name: pgvector
+      versionMin: "0.8"
+    - name: Ollama
+    - name: Keycloak
+      optional: true

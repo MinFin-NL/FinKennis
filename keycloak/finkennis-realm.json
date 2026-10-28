@@ -1,0 +1,62 @@
+{
+  "realm": "finkennis",
+  "enabled": true,
+  "displayName": "FinKennis",
+  "internationalizationEnabled": true,
+  "supportedLocales": ["nl", "en"],
+  "defaultLocale": "nl",
+  "loginWithEmailAllowed": true,
+  "registrationAllowed": false,
+  "sslRequired": "external",
+  "accessTokenLifespan": 300,
+  "clients": [
+    {
+      "clientId": "finkennis-frontend",
+      "name": "FinKennis frontend",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:5190/*"],
+      "webOrigins": ["http://localhost:5190"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5190/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience finkennis-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "finkennis-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "anna",
+      "enabled": true,
+      "email": "anna@example.org",
+      "emailVerified": true,
+      "firstName": "Anna",
+      "lastName": "de Vries",
+      "credentials": [{ "type": "password", "value": "anna", "temporary": false }]
+    },
+    {
+      "username": "bram",
+      "enabled": true,
+      "email": "bram@example.org",
+      "emailVerified": true,
+      "firstName": "Bram",
+      "lastName": "Jansen",
+      "credentials": [{ "type": "password", "value": "bram", "temporary": false }]
+    }
+  ]
+}
