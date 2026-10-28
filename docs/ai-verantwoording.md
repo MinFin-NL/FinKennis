@@ -191,9 +191,10 @@ Python/FastAPI) heeft geen afhankelijkheid van die AI-assistant; een andere assi
 een vervolg worden ingezet.
 
 *In de applicatie:* de taalmodellen zijn open-weight-modellen via Ollama en zijn met één
-instelling te wisselen. De koppeling met het model zit in één klasse
-([`backend/app/llm/ollama.py`](../backend/app/llm/ollama.py)), zodat een andere aanbieder
-daar kan worden aangesloten.
+instelling te wisselen. Het chatmodel wordt aangesproken via
+[Pydantic AI](https://ai.pydantic.dev), dat veel aanbieders ondersteunt. Het model wordt op één
+plek gekozen ([`backend/app/llm/ollama.py`](../backend/app/llm/ollama.py)), zodat een andere
+aanbieder daar kan worden aangesloten.
 
 #### b. Keuze voor de AI-assistant en het taalmodel
 

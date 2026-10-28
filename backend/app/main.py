@@ -2,6 +2,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager, suppress
 
+import pydantic_ai
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -11,8 +12,11 @@ from app.auth import _signing_key
 from app.config import get_settings
 from app.db import SessionLocal, engine
 from app.errors import install_handlers
-from app.llm.ollama import OllamaClient
+from app.llm.ollama import OllamaClient, chatmodel
 from app.rag.ingest_worker import requeue_stuck, run_worker
+
+# Geen welkomstbanner van Pydantic AI tussen de serverlogs.
+pydantic_ai.BANNER_ENABLED = False
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -23,7 +27,8 @@ API_VERSION = "1.0.0"
 async def lifespan(app: FastAPI):
     settings = get_settings()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
-    app.state.ollama = OllamaClient(settings.ollama_url, settings.chat_model, settings.embed_model)
+    app.state.ollama = OllamaClient(settings.ollama_url, settings.embed_model)
+    app.state.chatmodel = chatmodel(settings.ollama_url, settings.chat_model)
 
     workers: list[asyncio.Task] = []
     if settings.ingest_worker_enabled:

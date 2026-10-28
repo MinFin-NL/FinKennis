@@ -26,7 +26,7 @@ een externe AI-dienst.
 frontend (Vue 3 + NLDD)  ──/api/v1──►  backend (FastAPI)
                                         ├─ inlezen: docling → structuurbewust chunken → embeddings (Ollama)
                                         ├─ zoeken: pgvector (semantisch) + full-text (Nederlands), samengevoegd met RRF
-                                        ├─ antwoorden: Ollama-chatmodel, gestreamd als server-sent events
+                                        ├─ antwoorden: Ollama-chatmodel via Pydantic AI, gestreamd als server-sent events
                                         └─ authenticatie: geen (lokaal) of OIDC (Keycloak)
 PostgreSQL + pgvector: kennisbanken, documenten, fragmenten met vectoren, gesprekken
 ```

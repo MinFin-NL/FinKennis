@@ -82,7 +82,7 @@ function stop() {
 }
 
 onMounted(laadGesprekken);
-defineExpose({ bezig, verstuur, stop });
+defineExpose({ actief, bezig, verstuur, stop });
 
 // Alleen de bronnen waar het antwoord echt naar verwijst, zoals [2] of [1][3].
 function geciteerd(b: Bericht) {

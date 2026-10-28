@@ -100,6 +100,7 @@ function documentenGewijzigd(aantal: number) {
       v-if="tab === 'chat'"
       slot="footer"
       :bezig="chat?.bezig ?? false"
+      :vervolg="!!chat?.actief"
       @verstuur="chat?.verstuur($event)"
       @stop="chat?.stop()"
     />

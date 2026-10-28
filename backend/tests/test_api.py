@@ -1,6 +1,9 @@
 import asyncio
 import json
 
+from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.models.function import FunctionModel
+
 from app.config import get_settings
 from app.db import SessionLocal
 from app.rag.ingest_worker import claim_next, process
@@ -56,7 +59,7 @@ async def test_ongeldige_invoer_geeft_problem_json(client):
     assert r.json()["invalidParams"][0]["name"] == "body.naam"
 
 
-async def test_upload_verwerken_en_vragen(client, fake_ollama):
+async def test_upload_verwerken_en_vragen(client, fake_ollama, fake_chat):
     kb = (await client.post("/api/v1/kennisbanken", json={"naam": "HR"})).json()
     url = f"/api/v1/kennisbanken/{kb['id']}/documenten"
 
@@ -86,12 +89,58 @@ async def test_upload_verwerken_en_vragen(client, fake_ollama):
     assert "".join(d for e, d in events if e == "token") == "Het antwoord staat in [1]."
     assert events[-1][0] == "klaar"
     # De gevonden tekst is meegegeven aan het taalmodel.
-    assert "2,40 euro" in fake_ollama.laatste_berichten[-1]["content"]
+    assert "2,40 euro" in fake_chat.laatste_berichten[-1]["content"]
 
     detail = (await client.get(f"/api/v1/gesprekken/{gesprek['id']}")).json()
     assert detail["titel"].startswith("Hoeveel is de thuiswerkvergoeding")
     assert [b["rol"] for b in detail["berichten"]] == ["user", "assistant"]
     assert detail["berichten"][1]["bronnen"][0]["nummer"] == 1
+
+
+async def test_vervolgvraag_zoekt_met_het_onderwerp_uit_het_gesprek(client, fake_ollama, fake_chat):
+    kb = (await client.post("/api/v1/kennisbanken", json={"naam": "HR"})).json()
+    await client.post(
+        f"/api/v1/kennisbanken/{kb['id']}/documenten",
+        files=[("bestanden", ("thuiswerken.md", DOC, "text/markdown"))],
+    )
+    await _verwerk_wachtrij(fake_ollama)
+    gesprek = (await client.post(f"/api/v1/kennisbanken/{kb['id']}/gesprekken", json={})).json()
+    url = f"/api/v1/gesprekken/{gesprek['id']}/berichten"
+
+    await client.post(url, json={"inhoud": "Krijg ik een laptop?"})
+    # De eerste vraag heeft geen gesprek om te herschrijven.
+    assert fake_chat.herschrijfberichten is None
+
+    fake_chat.herschreven = "Hoeveel is de thuiswerkvergoeding per dag?"
+    r = await client.post(url, json={"inhoud": "En hoeveel krijg ik daarvoor?"})
+    events = _sse_events(r.text)
+
+    herschrijfvraag = fake_chat.herschrijfberichten[-1]["content"]
+    assert "Krijg ik een laptop?" in herschrijfvraag
+    assert "[1]" not in herschrijfvraag
+    assert events[0][1][0]["bestandsnaam"] == "thuiswerken.md"
+    # Het antwoord gaat over de oorspronkelijke vraag, met het eerdere gesprek erbij.
+    berichten = fake_chat.laatste_berichten
+    assert berichten[-1]["content"].endswith("Vraag: En hoeveel krijg ik daarvoor?")
+    gesprek_rollen = [b["role"] for b in berichten if b["role"] != "system"]
+    assert gesprek_rollen == ["user", "assistant", "user"]
+    assert berichten[0]["content"] == "Krijg ik een laptop?"
+    assert all("[1]" not in b["content"] for b in berichten if b["role"] == "assistant")
+
+
+async def test_fout_van_het_taalmodel_wordt_gemeld(client, app):
+    async def kapot(messages, info):
+        raise ModelHTTPError(status_code=500, model_name="nep", body="kapot")
+        yield ""
+
+    app.state.chatmodel = FunctionModel(stream_function=kapot)
+    kb = (await client.post("/api/v1/kennisbanken", json={"naam": "HR"})).json()
+    gesprek = (await client.post(f"/api/v1/kennisbanken/{kb['id']}/gesprekken", json={})).json()
+    r = await client.post(f"/api/v1/gesprekken/{gesprek['id']}/berichten", json={"inhoud": "Hoi"})
+
+    event, data = _sse_events(r.text)[-1]
+    assert event == "fout"
+    assert data["detail"].startswith("Het taalmodel gaf een fout")
 
 
 async def test_onleesbaar_document_krijgt_status_fout(client, fake_ollama):

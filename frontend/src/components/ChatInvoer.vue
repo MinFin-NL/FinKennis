@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 
-defineProps<{ bezig: boolean }>();
+defineProps<{ bezig: boolean; vervolg: boolean }>();
 const emit = defineEmits<{ verstuur: [vraag: string]; stop: [] }>();
 
 const vraag = ref('');
@@ -31,7 +31,7 @@ function toets(e: KeyboardEvent) {
 
 <template>
   <nldd-container padding="16" gap="8">
-    <nldd-form-field label="Je vraag" supporting-label="Enter verstuurt, Shift+Enter voor een nieuwe regel">
+    <nldd-form-field :label="vervolg ? 'Stel een vervolgvraag' : 'Je vraag'" supporting-label="Enter verstuurt, Shift+Enter voor een nieuwe regel">
       <nldd-multi-line-text-field
         :key="veldKey"
         :value="vraag"

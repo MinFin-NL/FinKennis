@@ -1,10 +1,25 @@
-"""Dunne client voor de Ollama HTTP-API. De rest van de app praat alleen met deze klasse,
-zodat een andere provider later achter dezelfde methoden kan."""
-
-import json
-from collections.abc import AsyncIterator
+"""Toegang tot Ollama. Het chatmodel loopt via Pydantic AI (zie `chatmodel`); voor embeddings en de
+health-check is er een dunne client voor de Ollama HTTP-API."""
 
 import httpx
+from pydantic_ai.models import Model
+from pydantic_ai.models.ollama import OllamaModel
+from pydantic_ai.models.openai import OpenAIChatModelSettings
+from pydantic_ai.providers.ollama import OllamaProvider
+
+
+def chatmodel(base_url: str, model_name: str) -> Model:
+    """Het chatmodel voor de Pydantic AI-agents. Een andere aanbieder past hier in de plaats."""
+    return OllamaModel(
+        model_name,
+        provider=OllamaProvider(base_url=f"{base_url.rstrip('/')}/v1"),
+        settings=OpenAIChatModelSettings(
+            temperature=0.2,
+            # Qwen3 en andere 'denkende' modellen: geen redeneerstappen. Het algemene
+            # `thinking=False` stuurt bij Ollama niets mee; deze instelling wel.
+            openai_reasoning_effort="none",
+        ),
+    )
 
 
 class OllamaError(RuntimeError):
@@ -12,8 +27,7 @@ class OllamaError(RuntimeError):
 
 
 class OllamaClient:
-    def __init__(self, base_url: str, chat_model: str, embed_model: str):
-        self.chat_model = chat_model
+    def __init__(self, base_url: str, embed_model: str):
         self.embed_model = embed_model
         self._http = httpx.AsyncClient(base_url=base_url, timeout=httpx.Timeout(300, connect=5))
 
@@ -25,30 +39,6 @@ class OllamaClient:
         if resp.status_code != 200:
             raise OllamaError(f"Embedden mislukt ({resp.status_code}): {resp.text[:200]}")
         return resp.json()["embeddings"]
-
-    async def chat_stream(self, messages: list[dict]) -> AsyncIterator[str]:
-        payload = {
-            "model": self.chat_model,
-            "messages": messages,
-            "stream": True,
-            # Qwen3 en andere 'denkende' modellen: geen redeneerstappen in het antwoord.
-            "think": False,
-            "options": {"temperature": 0.2},
-        }
-        async with self._http.stream("POST", "/api/chat", json=payload) as resp:
-            if resp.status_code != 200:
-                body = await resp.aread()
-                raise OllamaError(f"Chat mislukt ({resp.status_code}): {body[:200]!r}")
-            async for line in resp.aiter_lines():
-                if not line:
-                    continue
-                data = json.loads(line)
-                if "error" in data:
-                    raise OllamaError(data["error"])
-                if token := data.get("message", {}).get("content"):
-                    yield token
-                if data.get("done"):
-                    break
 
     async def health(self) -> bool:
         try:

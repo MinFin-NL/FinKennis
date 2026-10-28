@@ -4,6 +4,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.responses import StreamingResponse
+from pydantic_ai.exceptions import AgentRunError
+from pydantic_ai.models import Model
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -14,7 +16,7 @@ from app.db import SessionLocal
 from app.llm.ollama import OllamaClient, OllamaError
 from app.models import Bericht, Gesprek
 from app.rag.embedding import embed_query
-from app.rag.generation import bouw_berichten
+from app.rag.generation import als_berichten, antwoord_agent, herschrijf, vraag_met_bronnen
 from app.rag.retrieval import zoek
 from app.schemas import BerichtIn, GesprekDetail, GesprekIn, GesprekOut
 
@@ -82,6 +84,7 @@ async def stel_vraag(
     `bronnen` (de gevonden fragmenten), dan `token` per stukje tekst, en tot slot `klaar`
     of `fout`."""
     ollama: OllamaClient = request.app.state.ollama
+    chatmodel: Model = request.app.state.chatmodel
     vraag = body.inhoud.strip()
 
     eerdere = (
@@ -105,12 +108,15 @@ async def stel_vraag(
         antwoord: list[str] = []
         bronnen_json: list[dict] = []
         try:
-            vector = await embed_query(ollama, vraag)
+            # Een vervolgvraag ('en voor deeltijders?') vindt zelf weinig; zoek daarom met een
+            # versie die het onderwerp uit het gesprek meeneemt.
+            zoekvraag = await herschrijf(chatmodel, vraag, geschiedenis) if geschiedenis else vraag
+            vector = await embed_query(ollama, zoekvraag)
             async with SessionLocal() as s:
                 bronnen = await zoek(
                     s,
                     kennisbank_id,
-                    vraag,
+                    zoekvraag,
                     vector,
                     settings.retrieval_candidates,
                     settings.retrieval_top_k,
@@ -118,11 +124,16 @@ async def stel_vraag(
             bronnen_json = [b.as_dict(i) for i, b in enumerate(bronnen, start=1)]
             yield _sse("bronnen", bronnen_json)
 
-            async for token in ollama.chat_stream(bouw_berichten(vraag, bronnen, geschiedenis)):
-                antwoord.append(token)
-                yield _sse("token", token)
-        except OllamaError as e:
-            log.warning("Ollama-fout: %s", e)
+            async with antwoord_agent.run_stream(
+                vraag_met_bronnen(vraag, bronnen),
+                message_history=als_berichten(geschiedenis),
+                model=chatmodel,
+            ) as resultaat:
+                async for token in resultaat.stream_text(delta=True, debounce_by=None):
+                    antwoord.append(token)
+                    yield _sse("token", token)
+        except (AgentRunError, OllamaError) as e:
+            log.warning("Fout van het taalmodel: %s", e)
             yield _sse("fout", {"detail": f"Het taalmodel gaf een fout: {e}"})
             return
         except Exception:
