@@ -2,6 +2,7 @@
 import { nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { api, stelVraag, type Bericht, type Gesprek, type Kennisbank } from '../api';
 import AntwoordTekst from './AntwoordTekst.vue';
+import BevestigDialog from './BevestigDialog.vue';
 
 const props = defineProps<{ kennisbank: Kennisbank }>();
 const emit = defineEmits<{ naarDocumenten: [] }>();
@@ -11,6 +12,7 @@ const actief = ref<Gesprek | null>(null);
 const berichten = ref<Bericht[]>([]);
 const bezig = ref(false);
 const fout = ref<string | null>(null);
+const teVerwijderen = ref<Gesprek | null>(null);
 let controller: AbortController | null = null;
 
 async function laadGesprekken() {
@@ -35,6 +37,18 @@ function nieuw() {
   berichten.value = [];
   fout.value = null;
   laadGesprekken();
+}
+
+async function verwijder() {
+  const g = teVerwijderen.value;
+  if (!g) return;
+  try {
+    await api.verwijderGesprek(g.id);
+    if (actief.value?.id === g.id) nieuw();
+    else await laadGesprekken();
+  } catch (e) {
+    fout.value = (e as Error).message;
+  }
 }
 
 // Niet dit component scrolt maar de nldd-page eromheen. scrollIntoView zou het einde onder de
@@ -186,6 +200,14 @@ function datum(iso: string) {
         text="Nieuw gesprek"
         @click="nieuw"
       ></nldd-button>
+      <nldd-button
+        v-if="actief"
+        appearance="secondary"
+        start-icon="trash"
+        text="Verwijder gesprek"
+        :disabled="bezig"
+        @click="teVerwijderen = actief"
+      ></nldd-button>
     </nldd-container>
 
     <nldd-banner v-if="fout" variant="critical" text="Er ging iets mis" :supporting-text="fout" dismissible @dismiss="fout = null"></nldd-banner>
@@ -210,12 +232,19 @@ function datum(iso: string) {
       <nldd-container v-if="gesprekken.length" gap="8">
         <nldd-title size="5" heading-level="2" text="Eerdere gesprekken"></nldd-title>
         <nldd-list appearance="box-base" accessible-label="Eerdere gesprekken">
-          <nldd-list-item v-for="g in gesprekken" :key="g.id" button @click="open(g)">
-            <nldd-icon-cell icon="message-rectangle-text"></nldd-icon-cell>
-            <nldd-spacer-cell size="8"></nldd-spacer-cell>
-            <nldd-text-cell :text="g.titel" :supporting-text="datum(g.createdAt)"></nldd-text-cell>
-            <nldd-spacer-cell size="12"></nldd-spacer-cell>
-            <nldd-icon-cell size="20" color="secondary" icon="chevron-right"></nldd-icon-cell>
+          <!-- Twee acties per rij (openen en verwijderen), dus segmenten in plaats van een
+               rij die zelf een knop is. -->
+          <nldd-list-item v-for="g in gesprekken" :key="g.id">
+            <nldd-list-item-segment button width="full" @click="open(g)">
+              <nldd-icon-cell icon="message-rectangle-text"></nldd-icon-cell>
+              <nldd-spacer-cell size="8"></nldd-spacer-cell>
+              <nldd-text-cell :text="g.titel" :supporting-text="datum(g.createdAt)"></nldd-text-cell>
+              <nldd-spacer-cell size="12"></nldd-spacer-cell>
+              <nldd-icon-cell size="20" color="secondary" icon="chevron-right"></nldd-icon-cell>
+            </nldd-list-item-segment>
+            <nldd-list-item-segment button :accessible-label="`${g.titel} verwijderen`" @click="teVerwijderen = g">
+              <nldd-icon-cell size="20" color="secondary" icon="trash"></nldd-icon-cell>
+            </nldd-list-item-segment>
           </nldd-list-item>
         </nldd-list>
       </nldd-container>
@@ -249,6 +278,17 @@ function datum(iso: string) {
       </template>
     </nldd-container>
   </nldd-container>
+
+  <Teleport to="body">
+    <BevestigDialog
+      :open="!!teVerwijderen"
+      :text="`${teVerwijderen?.titel ?? 'Gesprek'} verwijderen?`"
+      supporting-text="Het gesprek en alle vragen en antwoorden erin worden verwijderd. Dit kun je niet ongedaan maken."
+      actie="Verwijder"
+      @close="teVerwijderen = null"
+      @bevestig="verwijder"
+    />
+  </Teleport>
 </template>
 
 <style scoped>
