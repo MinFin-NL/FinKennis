@@ -376,6 +376,17 @@ resource backend 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'OIDC_AUDIENCE', value: 'finkennis-api' }
             { name: 'OIDC_ADMIN_CLIENT_ID', value: 'finkennis-admin' }
             { name: 'OIDC_ADMIN_CLIENT_SECRET', secretRef: 'oidc-admin-client-secret' }
+            {
+              name: 'CONFIG_HASH'
+              value: uniqueString(
+                azureOpenAiEndpoint,
+                azureOpenAiApiKey,
+                azureOpenAiEmbeddingEndpoint,
+                azureOpenAiEmbeddingApiKey,
+                postgresPassword,
+                oidcAdminClientSecret
+              )
+            }
           ]
           volumeMounts: [
             { volumeName: 'uploads', mountPath: '/data/uploads' }
