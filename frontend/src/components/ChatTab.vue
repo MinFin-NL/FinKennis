@@ -2,6 +2,7 @@
 import { nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { api, stelVraag, type Bericht, type Gesprek, type Kennisbank } from '../api';
 import AntwoordTekst from './AntwoordTekst.vue';
+import BevestigDialog from './BevestigDialog.vue';
 
 const props = defineProps<{ kennisbank: Kennisbank }>();
 const emit = defineEmits<{ naarDocumenten: [] }>();
@@ -11,6 +12,7 @@ const actief = ref<Gesprek | null>(null);
 const berichten = ref<Bericht[]>([]);
 const bezig = ref(false);
 const fout = ref<string | null>(null);
+const bevestigVerwijderen = ref(false);
 let controller: AbortController | null = null;
 
 async function laadGesprekken() {
@@ -35,6 +37,17 @@ function nieuw() {
   berichten.value = [];
   fout.value = null;
   laadGesprekken();
+}
+
+async function verwijder() {
+  const g = actief.value;
+  if (!g) return;
+  try {
+    await api.verwijderGesprek(g.id);
+    nieuw();
+  } catch (e) {
+    fout.value = (e as Error).message;
+  }
 }
 
 // Niet dit component scrolt maar de nldd-page eromheen. scrollIntoView zou het einde onder de
@@ -186,6 +199,14 @@ function datum(iso: string) {
         text="Nieuw gesprek"
         @click="nieuw"
       ></nldd-button>
+      <nldd-button
+        v-if="actief"
+        appearance="secondary"
+        start-icon="trash"
+        text="Verwijder gesprek"
+        :disabled="bezig"
+        @click="bevestigVerwijderen = true"
+      ></nldd-button>
     </nldd-container>
 
     <nldd-banner v-if="fout" variant="critical" text="Er ging iets mis" :supporting-text="fout" dismissible @dismiss="fout = null"></nldd-banner>
@@ -249,6 +270,17 @@ function datum(iso: string) {
       </template>
     </nldd-container>
   </nldd-container>
+
+  <Teleport to="body">
+    <BevestigDialog
+      :open="bevestigVerwijderen"
+      :text="`${actief?.titel ?? 'Gesprek'} verwijderen?`"
+      supporting-text="Het gesprek en alle vragen en antwoorden erin worden verwijderd."
+      actie="Verwijder"
+      @close="bevestigVerwijderen = false"
+      @bevestig="verwijder"
+    />
+  </Teleport>
 </template>
 
 <style scoped>
