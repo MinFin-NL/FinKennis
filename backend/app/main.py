@@ -13,7 +13,7 @@ from app.config import get_settings
 from app.db import SessionLocal, engine
 from app.errors import install_handlers
 from app.keycloak import KeycloakAdmin
-from app.llm.ollama import OllamaClient, chatmodel
+from app.llm import maak_taalmodellen
 from app.rag.ingest_worker import requeue_stuck, run_worker
 
 # Geen welkomstbanner van Pydantic AI tussen de serverlogs.
@@ -28,8 +28,7 @@ API_VERSION = "1.0.0"
 async def lifespan(app: FastAPI):
     settings = get_settings()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
-    app.state.ollama = OllamaClient(settings.ollama_url, settings.embed_model)
-    app.state.chatmodel = chatmodel(settings.ollama_url, settings.chat_model)
+    app.state.embedder, app.state.chatmodel = maak_taalmodellen(settings)
     app.state.keycloak = None
     if settings.auth_mode == "oidc":
         app.state.keycloak = KeycloakAdmin(
@@ -40,7 +39,7 @@ async def lifespan(app: FastAPI):
     if settings.ingest_worker_enabled:
         await requeue_stuck(SessionLocal)
         workers = [
-            asyncio.create_task(run_worker(SessionLocal, app.state.ollama, settings))
+            asyncio.create_task(run_worker(SessionLocal, app.state.embedder, settings))
             for _ in range(settings.ingest_concurrency)
         ]
     yield
@@ -49,7 +48,7 @@ async def lifespan(app: FastAPI):
     for w in workers:
         with suppress(asyncio.CancelledError):
             await w
-    await app.state.ollama.aclose()
+    await app.state.embedder.aclose()
     if app.state.keycloak:
         await app.state.keycloak.aclose()
     await engine.dispose()
@@ -98,11 +97,11 @@ def create_app() -> FastAPI:
                 await s.execute(text("SELECT 1"))
         except Exception:
             db_ok = False
-        ollama_ok = await app.state.ollama.health()
+        llm_ok = await app.state.embedder.health()
         return {
-            "status": "ok" if db_ok and ollama_ok else "degraded",
+            "status": "ok" if db_ok and llm_ok else "degraded",
             "database": db_ok,
-            "ollama": ollama_ok,
+            "llm": llm_ok,
         }
 
     app.include_router(v1)

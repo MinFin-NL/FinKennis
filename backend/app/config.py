@@ -10,11 +10,23 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://finkennis:finkennis@localhost:5433/finkennis"
 
+    llm_provider: Literal["ollama", "azure_openai"] = "ollama"
+
     ollama_url: str = "http://localhost:11434"
     chat_model: str = "qwen3:8b"
     embed_model: str = "nomic-embed-text"
     embed_dim: int = 768
     embed_batch_size: int = 32
+
+    # Alleen bij LLM_PROVIDER=azure_openai. Zelfde namen als in de invulhulp.
+    azure_openai_endpoint: str = ""
+    azure_openai_api_key: str = ""
+    azure_openai_deployment: str = "gpt-5.3-chat"
+    azure_openai_api_version: str = "2025-04-01-preview"
+    azure_openai_embedding_endpoint: str = ""
+    azure_openai_embedding_api_key: str = ""
+    azure_openai_embedding_deployment: str = "text-embedding-3-large"
+    azure_openai_embedding_api_version: str = "2024-02-01"
 
     upload_dir: Path = Path("uploads")
     max_upload_mb: int = 50
