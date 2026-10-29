@@ -6,7 +6,7 @@ from pydantic_ai.models.function import FunctionModel
 
 from app.config import get_settings
 from app.db import SessionLocal
-from app.rag.ingest_worker import claim_next, process
+from app.rag.ingest_worker import MAX_POGINGEN, claim_next, process, requeue_stuck
 
 DOC = b"""# Thuiswerkbeleid
 
@@ -152,6 +152,25 @@ async def test_onleesbaar_document_krijgt_status_fout(client, fake_ollama):
     doc = (await client.get(url)).json()[0]
     assert doc["status"] == "fout"
     assert doc["foutmelding"]
+
+
+async def test_document_dat_backend_laat_crashen_wordt_fout(client, fake_ollama):
+    kb = (await client.post("/api/v1/kennisbanken", json={"naam": "HR"})).json()
+    url = f"/api/v1/kennisbanken/{kb['id']}/documenten"
+    await client.post(url, files=[("bestanden", ("thuiswerken.md", DOC, "text/markdown"))])
+
+    # Oppakken zonder af te ronden en dan herstarten: zo ziet een OOM-kill eruit.
+    for _ in range(MAX_POGINGEN - 1):
+        assert await claim_next(SessionLocal)
+        await requeue_stuck(SessionLocal)
+        assert (await client.get(url)).json()[0]["status"] == "wachtrij"
+
+    assert await claim_next(SessionLocal)
+    await requeue_stuck(SessionLocal)
+    doc = (await client.get(url)).json()[0]
+    assert doc["status"] == "fout"
+    assert "afgebroken" in doc["foutmelding"]
+    assert await claim_next(SessionLocal) is None
 
 
 async def test_niet_ondersteund_bestandstype(client):

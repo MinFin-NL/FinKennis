@@ -20,6 +20,7 @@ from app.rag.parsing import parse
 
 log = logging.getLogger(__name__)
 POLL_SECONDS = 2.0
+MAX_POGINGEN = 3
 
 
 async def claim_next(sessionmaker: async_sessionmaker) -> Document | None:
@@ -33,6 +34,7 @@ async def claim_next(sessionmaker: async_sessionmaker) -> Document | None:
         )
         if doc:
             doc.status = DocumentStatus.verwerken
+            doc.pogingen += 1
         return doc
 
 
@@ -78,8 +80,22 @@ async def process(
 
 
 async def requeue_stuck(sessionmaker: async_sessionmaker) -> None:
-    """Na een herstart staan documenten mogelijk nog op 'verwerken'; zet ze terug in de wachtrij."""
+    """Na een herstart staan documenten mogelijk nog op 'verwerken'; zet ze terug in de wachtrij.
+
+    Een document dat al MAX_POGINGEN keer is opgepakt, heeft de backend waarschijnlijk zelf
+    laten crashen. Dat krijgt status 'fout', anders blijft het de backend herstarten.
+    """
     async with sessionmaker() as session, session.begin():
+        await session.execute(
+            update(Document)
+            .where(Document.status == DocumentStatus.verwerken)
+            .where(Document.pogingen >= MAX_POGINGEN)
+            .values(
+                status=DocumentStatus.fout,
+                foutmelding="Het verwerken is herhaaldelijk afgebroken. Het document is "
+                "mogelijk te groot; probeer het op te splitsen.",
+            )
+        )
         await session.execute(
             update(Document)
             .where(Document.status == DocumentStatus.verwerken)

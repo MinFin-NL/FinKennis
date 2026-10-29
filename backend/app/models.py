@@ -66,6 +66,9 @@ class Document(Base):
     )
     foutmelding: Mapped[str | None] = mapped_column(Text)
     aantal_chunks: Mapped[int] = mapped_column(Integer, default=0)
+    # Hoe vaak de worker het document heeft opgepakt. Loopt op als de backend tijdens het
+    # verwerken stopt (bijv. geheugen op), zodat één document niet eindeloos blijft crashen.
+    pogingen: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     kennisbank: Mapped[Kennisbank] = relationship(back_populates="documenten")

@@ -351,8 +351,9 @@ resource backend 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'backend'
           image: backendImage
-          // docling (PDF-layout en tabellen) is CPU- en geheugenhongerig.
-          resources: { cpu: json('2.0'), memory: '4Gi' }
+          // docling (PDF-layout en tabellen) is CPU- en geheugenhongerig; met 4Gi werd de
+          // container bij grote PDF's gekilld (exit 137). 4 vCPU / 8Gi is het maximum op Consumption.
+          resources: { cpu: json('4.0'), memory: '8Gi' }
           env: [
             { name: 'DATABASE_URL', secretRef: 'database-url' }
             { name: 'UPLOAD_DIR', value: '/data/uploads' }
