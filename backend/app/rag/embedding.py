@@ -1,4 +1,4 @@
-from app.llm.ollama import OllamaClient
+from app.llm import EmbedClient
 
 # nomic-embed-text is getraind met taakprefixen; zonder prefix zakt de kwaliteit merkbaar.
 DOC_PREFIX = "search_document: "
@@ -10,7 +10,7 @@ def _prefixes(model: str) -> tuple[str, str]:
 
 
 async def embed_documents(
-    client: OllamaClient, teksten: list[str], batch_size: int = 32
+    client: EmbedClient, teksten: list[str], batch_size: int = 32
 ) -> list[list[float]]:
     doc_prefix, _ = _prefixes(client.embed_model)
     vectoren: list[list[float]] = []
@@ -20,6 +20,6 @@ async def embed_documents(
     return vectoren
 
 
-async def embed_query(client: OllamaClient, vraag: str) -> list[float]:
+async def embed_query(client: EmbedClient, vraag: str) -> list[float]:
     _, query_prefix = _prefixes(client.embed_model)
     return (await client.embed([query_prefix + vraag]))[0]

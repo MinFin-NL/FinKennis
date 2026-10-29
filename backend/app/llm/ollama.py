@@ -7,6 +7,8 @@ from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.models.openai import OpenAIChatModelSettings
 from pydantic_ai.providers.ollama import OllamaProvider
 
+from app.llm import EmbedError
+
 
 def chatmodel(base_url: str, model_name: str) -> Model:
     """Het chatmodel voor de Pydantic AI-agents. Een andere aanbieder past hier in de plaats."""
@@ -22,7 +24,7 @@ def chatmodel(base_url: str, model_name: str) -> Model:
     )
 
 
-class OllamaError(RuntimeError):
+class OllamaError(EmbedError):
     pass
 
 

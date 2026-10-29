@@ -1,0 +1,280 @@
+# ---------------------------------------------------------------------------
+# Azure DevOps-pipeline voor FinKennis (inno-d).
+#
+# Zelfde opzet als de invulhulp (self-hosted pool, variable groups, AzureCLI@2)
+# en draait in dezelfde resource group en hetzelfde Container Apps-environment.
+# Het uitrollen gaat zoals bij de centrale Keycloak (innovatieteam-infra): Bicep
+# (azure/main.bicep) beschrijft de container apps, de Postgres-container en de
+# uploadopslag, en is idempotent.
+#
+#   Build   docker build + push van backend en frontend naar de ACR van de RG
+#   Deploy  az deployment group create (alleen main)
+#
+# Inloggen gaat via de realm 'finkennis' op de gedeelde Keycloak. Die realm wordt
+# uitgerold door de Keycloak-pipeline; draai die eerst.
+#
+# Nodig in Azure DevOps (Pipelines > Library):
+#   - 'invulhulp-secrets'  AZURE_SERVICE_CONNECTION, de Azure OpenAI-waarden
+#                          (AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY,
+#                          AZURE_OPENAI_EMBEDDING_ENDPOINT,
+#                          AZURE_OPENAI_EMBEDDING_API_KEY) en ALLOWED_IP_1..4.
+#                          Gedeeld met de invulhulp: zelfde model, zelfde netwerk.
+#   - 'keycloak-secrets'   FINKENNIS_ADMIN_CLIENT_SECRET (secret): het secret van
+#                          de finkennis-admin-client. Keycloak rendert het in de
+#                          realm, de backend gebruikt het voor gebruikersbeheer.
+#                          Optioneel FINKENNIS_PUBLIC_URL bij een eigen domein; de
+#                          Keycloak-pipeline leest dezelfde waarde.
+#   - 'finkennis-secrets'  FINKENNIS_PG_PASSWORD (secret, hex: openssl rand -hex 24)
+# ---------------------------------------------------------------------------
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    exclude:
+      - README.md
+      - CHANGELOG.md
+      - docs/*
+
+# PR's worden getest door GitHub Actions (.github/workflows/ci.yml). Hier niets
+# bouwen of pushen voor code die nog niet is gereviewd.
+pr: none
+
+pool:
+  name: alz-p-mgmt-we-ccoe-pool
+
+variables:
+  - group: invulhulp-secrets
+  - group: keycloak-secrets
+  - group: finkennis-secrets
+  - name: ENVIRONMENT_NAME
+    value: inno-d
+  - name: RESOURCE_GROUP
+    value: rg-invulhulp-inno-d
+  - name: CONTAINER_APP_ENV
+    value: cae-invulhulp-inno-d
+  - name: KEYCLOAK_APP
+    value: ca-keycloak-inno-d
+  - name: KEYCLOAK_REALM
+    value: finkennis
+  - name: STORAGE_ACCOUNT
+    value: stfinkennisinnod
+  - name: BACKEND_IMAGE
+    value: finkennis-backend
+  - name: FRONTEND_IMAGE
+    value: finkennis-frontend
+  - name: DEPLOYMENT_NAME
+    value: finkennis
+  # Op 'true' zetten (als run-variabele) om de Postgres-container opnieuw aan te
+  # maken. De nieuwe replica zet de dump terug die deze run net heeft gemaakt. Nodig
+  # na het wijzigen van FINKENNIS_PG_PASSWORD: de postgres-image leest
+  # POSTGRES_PASSWORD alleen bij initdb. Echt leeg beginnen: verwijder eerst de
+  # dumps op de share finkennis-pgbackup.
+  - name: FORCE_PG_REINIT
+    value: 'false'
+
+stages:
+  - stage: Build
+    displayName: Images bouwen en pushen
+    jobs:
+      - job: Build
+        displayName: Docker build en push naar ACR
+        steps:
+          - task: AzureCLI@2
+            displayName: Backend bouwen en pushen
+            env:
+              IMAGE_TAG: $(Build.SourceVersion)
+              BACKEND_IMAGE: $(BACKEND_IMAGE)
+              RESOURCE_GROUP: $(RESOURCE_GROUP)
+            inputs:
+              azureSubscription: $(AZURE_SERVICE_CONNECTION)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                ACR_LOGIN_SERVER=$(az acr list --resource-group "$RESOURCE_GROUP" --query "[0].loginServer" -o tsv)
+                az acr login --name "${ACR_LOGIN_SERVER%%.*}"
+                docker build backend \
+                  -t "$ACR_LOGIN_SERVER/$BACKEND_IMAGE:$IMAGE_TAG" \
+                  -t "$ACR_LOGIN_SERVER/$BACKEND_IMAGE:latest"
+                docker push "$ACR_LOGIN_SERVER/$BACKEND_IMAGE:$IMAGE_TAG"
+                docker push "$ACR_LOGIN_SERVER/$BACKEND_IMAGE:latest"
+
+          - task: AzureCLI@2
+            displayName: Frontend bouwen en pushen
+            env:
+              IMAGE_TAG: $(Build.SourceVersion)
+              FRONTEND_IMAGE: $(FRONTEND_IMAGE)
+              RESOURCE_GROUP: $(RESOURCE_GROUP)
+              KEYCLOAK_APP: $(KEYCLOAK_APP)
+              KEYCLOAK_REALM: $(KEYCLOAK_REALM)
+            inputs:
+              azureSubscription: $(AZURE_SERVICE_CONNECTION)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                ACR_LOGIN_SERVER=$(az acr list --resource-group "$RESOURCE_GROUP" --query "[0].loginServer" -o tsv)
+                az acr login --name "${ACR_LOGIN_SERVER%%.*}"
+
+                # Vite bakt de Keycloak-URL in de bundel, dus die moet nu al bekend zijn.
+                KC_FQDN=$(az containerapp show --name "$KEYCLOAK_APP" --resource-group "$RESOURCE_GROUP" \
+                  --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
+                if [[ -z "$KC_FQDN" ]]; then
+                  echo "##[error]Keycloak-app '$KEYCLOAK_APP' niet gevonden in $RESOURCE_GROUP. Draai eerst de Keycloak-pipeline." >&2
+                  exit 1
+                fi
+
+                docker build frontend \
+                  --build-arg VITE_AUTH_MODE=oidc \
+                  --build-arg "VITE_OIDC_AUTHORITY=https://${KC_FQDN}/realms/${KEYCLOAK_REALM}" \
+                  --build-arg VITE_OIDC_CLIENT_ID=finkennis-frontend \
+                  -t "$ACR_LOGIN_SERVER/$FRONTEND_IMAGE:$IMAGE_TAG" \
+                  -t "$ACR_LOGIN_SERVER/$FRONTEND_IMAGE:latest"
+                docker push "$ACR_LOGIN_SERVER/$FRONTEND_IMAGE:$IMAGE_TAG"
+                docker push "$ACR_LOGIN_SERVER/$FRONTEND_IMAGE:latest"
+
+  - stage: Deploy
+    displayName: Uitrollen naar Container Apps (Bicep)
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: Deploy
+        displayName: az deployment group create
+        steps:
+          - task: AzureCLI@2
+            displayName: Infra en apps uitrollen
+            env:
+              IMAGE_TAG: $(Build.SourceVersion)
+              ENVIRONMENT_NAME: $(ENVIRONMENT_NAME)
+              RESOURCE_GROUP: $(RESOURCE_GROUP)
+              CONTAINER_APP_ENV: $(CONTAINER_APP_ENV)
+              KEYCLOAK_APP: $(KEYCLOAK_APP)
+              KEYCLOAK_REALM: $(KEYCLOAK_REALM)
+              STORAGE_ACCOUNT: $(STORAGE_ACCOUNT)
+              BACKEND_IMAGE: $(BACKEND_IMAGE)
+              FRONTEND_IMAGE: $(FRONTEND_IMAGE)
+              DEPLOYMENT_NAME: $(DEPLOYMENT_NAME)
+              FORCE_PG_REINIT: $(FORCE_PG_REINIT)
+              FINKENNIS_PUBLIC_URL: $(FINKENNIS_PUBLIC_URL)
+              ALLOWED_IP_1: $(ALLOWED_IP_1)
+              ALLOWED_IP_2: $(ALLOWED_IP_2)
+              ALLOWED_IP_3: $(ALLOWED_IP_3)
+              ALLOWED_IP_4: $(ALLOWED_IP_4)
+              # Secret variables komen alleen via env in een script terecht.
+              AZURE_OPENAI_ENDPOINT: $(AZURE_OPENAI_ENDPOINT)
+              AZURE_OPENAI_API_KEY: $(AZURE_OPENAI_API_KEY)
+              AZURE_OPENAI_EMBEDDING_ENDPOINT: $(AZURE_OPENAI_EMBEDDING_ENDPOINT)
+              AZURE_OPENAI_EMBEDDING_API_KEY: $(AZURE_OPENAI_EMBEDDING_API_KEY)
+              FINKENNIS_PG_PASSWORD: $(FINKENNIS_PG_PASSWORD)
+              FINKENNIS_ADMIN_CLIENT_SECRET: $(FINKENNIS_ADMIN_CLIENT_SECRET)
+            inputs:
+              azureSubscription: $(AZURE_SERVICE_CONNECTION)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+
+                # Een variabele die nergens is gedefinieerd, komt als letterlijke
+                # '$(NAAM)' binnen. Behandel dat als leeg.
+                unset_if_macro() { local v="${!1:-}"; [[ "$v" == '$('* ]] && v=""; printf -v "$1" '%s' "$v"; }
+                for v in FINKENNIS_PUBLIC_URL ALLOWED_IP_1 ALLOWED_IP_2 ALLOWED_IP_3 ALLOWED_IP_4; do
+                  unset_if_macro "$v"
+                done
+
+                if [[ ! "$FINKENNIS_PG_PASSWORD" =~ ^[A-Za-z0-9]+$ ]]; then
+                  echo "##[error]FINKENNIS_PG_PASSWORD ontbreekt of bevat andere tekens dan letters en cijfers; het komt in een database-URL. Gebruik openssl rand -hex 24." >&2
+                  exit 1
+                fi
+
+                ACR_NAME=$(az acr list --resource-group "$RESOURCE_GROUP" --query "[0].name" -o tsv)
+                ACR_LOGIN_SERVER=$(az acr show --name "$ACR_NAME" --query loginServer -o tsv)
+
+                KC_FQDN=$(az containerapp show --name "$KEYCLOAK_APP" --resource-group "$RESOURCE_GROUP" \
+                  --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
+                if [[ -z "$KC_FQDN" ]]; then
+                  echo "##[error]Keycloak-app '$KEYCLOAK_APP' niet gevonden in $RESOURCE_GROUP. Draai eerst de Keycloak-pipeline." >&2
+                  exit 1
+                fi
+
+                # Dezelfde allowlist als de frontend van de invulhulp.
+                IP_RANGES=$(python3 - <<'PY'
+                import json, os
+                namen = ["DWR Next werkplekken", "ITS", "Allowed range 3", "Allowed range 4"]
+                print(json.dumps([
+                    {"name": naam, "ipAddressRange": os.environ[f"ALLOWED_IP_{i}"]}
+                    for i, naam in enumerate(namen, start=1)
+                    if os.environ.get(f"ALLOWED_IP_{i}")
+                ]))
+                PY
+                )
+                if [[ "$IP_RANGES" == "[]" ]]; then
+                  echo "##[warning]Geen ALLOWED_IP_* gevonden: de frontend is voor het hele internet bereikbaar."
+                fi
+
+                run_job() {  # start een Container Apps-job en wacht op het resultaat
+                  local job="$1" exe status
+                  exe=$(az containerapp job start -n "$job" -g "$RESOURCE_GROUP" --query name -o tsv)
+                  echo "Job $job gestart: $exe"
+                  for _ in $(seq 1 120); do
+                    status=$(az containerapp job execution show -n "$job" -g "$RESOURCE_GROUP" \
+                      --job-execution-name "$exe" --query properties.status -o tsv)
+                    case "$status" in
+                      Succeeded) return 0 ;;
+                      Failed|Stopped|Degraded) echo "Job $job: $status" >&2; return 1 ;;
+                    esac
+                    sleep 10
+                  done
+                  echo "Job $job: na 20 minuten nog niet klaar" >&2
+                  return 1
+                }
+
+                # Vóór elke deploy een verse dump. Vervangt deze deploy de Postgres-
+                # replica (FORCE_PG_REINIT, of een gewijzigd Postgres-template), dan
+                # zet de nieuwe replica precies deze dump terug.
+                DUMP_JOB="job-finkennis-pgdump-${ENVIRONMENT_NAME}"
+                if az containerapp job show -n "$DUMP_JOB" -g "$RESOURCE_GROUP" -o none 2>/dev/null; then
+                  if ! run_job "$DUMP_JOB"; then
+                    if [[ "${FORCE_PG_REINIT,,}" == "true" ]]; then
+                      echo "##[warning]Dump vóór de deploy mislukt; FORCE_PG_REINIT=true, dus toch door. De nieuwe replica zet de vorige dump terug."
+                    else
+                      echo "##[error]Dump vóór de deploy mislukt; niet uitgerold. Zie de logs van $DUMP_JOB." >&2
+                      exit 1
+                    fi
+                  fi
+                else
+                  echo "Nog geen $DUMP_JOB: eerste deploy, er is nog niets te bewaren."
+                fi
+
+                PG_SUFFIX=""
+                if [[ "${FORCE_PG_REINIT,,}" == "true" ]]; then
+                  echo "##[warning]FORCE_PG_REINIT=true: nieuwe Postgres-replica; die zet de nieuwste dump terug."
+                  PG_SUFFIX="r${IMAGE_TAG:0:12}"
+                fi
+
+                az deployment group create \
+                  -g "$RESOURCE_GROUP" -n "$DEPLOYMENT_NAME" \
+                  -f azure/main.bicep \
+                  -p environmentName="$ENVIRONMENT_NAME" \
+                     caeName="$CONTAINER_APP_ENV" \
+                     acrName="$ACR_NAME" \
+                     storageAccountName="$STORAGE_ACCOUNT" \
+                     backendImage="$ACR_LOGIN_SERVER/$BACKEND_IMAGE:$IMAGE_TAG" \
+                     frontendImage="$ACR_LOGIN_SERVER/$FRONTEND_IMAGE:$IMAGE_TAG" \
+                     postgresRevisionSuffix="$PG_SUFFIX" \
+                     keycloakUrl="https://$KC_FQDN" \
+                     keycloakRealm="$KEYCLOAK_REALM" \
+                     publicUrl="$FINKENNIS_PUBLIC_URL" \
+                     allowedIpRanges="$IP_RANGES" \
+                     azureOpenAiEndpoint="$AZURE_OPENAI_ENDPOINT" \
+                     azureOpenAiApiKey="$AZURE_OPENAI_API_KEY" \
+                     azureOpenAiEmbeddingEndpoint="$AZURE_OPENAI_EMBEDDING_ENDPOINT" \
+                     azureOpenAiEmbeddingApiKey="$AZURE_OPENAI_EMBEDDING_API_KEY" \
+                     postgresPassword="$FINKENNIS_PG_PASSWORD" \
+                     oidcAdminClientSecret="$FINKENNIS_ADMIN_CLIENT_SECRET" \
+                  -o none
+
+                URL=$(az deployment group show -g "$RESOURCE_GROUP" -n "$DEPLOYMENT_NAME" \
+                  --query properties.outputs.publicUrl.value -o tsv)
+                echo "FinKennis draait op $URL"

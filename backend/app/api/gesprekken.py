@@ -13,7 +13,7 @@ from app.api.deps import EigenGesprek, EigenKennisbank, Session
 from app.auth import CurrentUser
 from app.config import Settings, get_settings
 from app.db import SessionLocal
-from app.llm.ollama import OllamaClient, OllamaError
+from app.llm import EmbedClient, EmbedError
 from app.models import Bericht, Gesprek
 from app.rag.embedding import embed_query
 from app.rag.generation import als_berichten, antwoord_agent, herschrijf, vraag_met_bronnen
@@ -83,7 +83,7 @@ async def stel_vraag(
     """Stelt een vraag en streamt het antwoord als server-sent events:
     `bronnen` (de gevonden fragmenten), dan `token` per stukje tekst, en tot slot `klaar`
     of `fout`."""
-    ollama: OllamaClient = request.app.state.ollama
+    embedder: EmbedClient = request.app.state.embedder
     chatmodel: Model = request.app.state.chatmodel
     vraag = body.inhoud.strip()
 
@@ -111,7 +111,7 @@ async def stel_vraag(
             # Een vervolgvraag ('en voor deeltijders?') vindt zelf weinig; zoek daarom met een
             # versie die het onderwerp uit het gesprek meeneemt.
             zoekvraag = await herschrijf(chatmodel, vraag, geschiedenis) if geschiedenis else vraag
-            vector = await embed_query(ollama, zoekvraag)
+            vector = await embed_query(embedder, zoekvraag)
             async with SessionLocal() as s:
                 bronnen = await zoek(
                     s,
@@ -132,7 +132,7 @@ async def stel_vraag(
                 async for token in resultaat.stream_text(delta=True, debounce_by=None):
                     antwoord.append(token)
                     yield _sse("token", token)
-        except (AgentRunError, OllamaError) as e:
+        except (AgentRunError, EmbedError) as e:
             log.warning("Fout van het taalmodel: %s", e)
             yield _sse("fout", {"detail": f"Het taalmodel gaf een fout: {e}"})
             return

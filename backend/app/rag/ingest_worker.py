@@ -12,7 +12,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import Settings
-from app.llm.ollama import OllamaClient
+from app.llm import EmbedClient
 from app.models import Chunk, Document, DocumentStatus
 from app.rag.chunking import chunk_document
 from app.rag.embedding import embed_documents
@@ -37,7 +37,7 @@ async def claim_next(sessionmaker: async_sessionmaker) -> Document | None:
 
 
 async def process(
-    doc: Document, sessionmaker: async_sessionmaker, ollama: OllamaClient, settings: Settings
+    doc: Document, sessionmaker: async_sessionmaker, embedder: EmbedClient, settings: Settings
 ) -> None:
     try:
         dl_doc = await asyncio.to_thread(parse, Path(doc.pad), doc.bestandsnaam)
@@ -45,7 +45,7 @@ async def process(
         if not chunks:
             raise ValueError("Er is geen tekst in het document gevonden.")
         vectoren = await embed_documents(
-            ollama, [c.context_tekst for c in chunks], settings.embed_batch_size
+            embedder, [c.context_tekst for c in chunks], settings.embed_batch_size
         )
 
         async with sessionmaker() as session, session.begin():
@@ -88,7 +88,7 @@ async def requeue_stuck(sessionmaker: async_sessionmaker) -> None:
 
 
 async def run_worker(
-    sessionmaker: async_sessionmaker, ollama: OllamaClient, settings: Settings
+    sessionmaker: async_sessionmaker, embedder: EmbedClient, settings: Settings
 ) -> None:
     while True:
         try:
@@ -99,4 +99,4 @@ async def run_worker(
         if doc is None:
             await asyncio.sleep(POLL_SECONDS)
             continue
-        await process(doc, sessionmaker, ollama, settings)
+        await process(doc, sessionmaker, embedder, settings)

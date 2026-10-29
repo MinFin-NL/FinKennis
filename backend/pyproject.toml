@@ -18,6 +18,9 @@ dependencies = [
     "pyjwt[crypto]>=2.10",
     "docling>=2.15",
     "pydantic-ai-slim[openai]>=2.63.0",
+    # Via docling; hier genoemd zodat [tool.uv.sources] de CPU-build kan kiezen.
+    "torch",
+    "torchvision",
 ]
 
 [dependency-groups]
@@ -40,3 +43,14 @@ asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["."]
+
+# Container Apps heeft geen GPU: op Linux de CPU-build van torch, anders haalt docling
+# gigabytes aan CUDA-bibliotheken het image in.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

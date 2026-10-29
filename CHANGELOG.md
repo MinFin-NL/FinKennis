@@ -9,6 +9,13 @@ project volgt [Semantic Versioning](https://semver.org/lang/nl/).
 
 ### Toegevoegd
 
+- Uitrollen naar Azure Container Apps via Azure DevOps (`azure-pipelines.yml`, `azure/main.bicep`),
+  naast de invulhulp, met een eigen pgvector-database en de realm `finkennis` op de gedeelde
+  Keycloak. Dockerfiles voor backend en frontend.
+- Backup van de Azure-database: elke nacht en vóór elke deploy een `pg_dump` naar Azure
+  Files, die Postgres na een herstart vanzelf terugzet.
+- Azure OpenAI als taalmodel (`LLM_PROVIDER=azure_openai`), met dezelfde deployments als de
+  invulhulp. Ollama blijft de standaard voor lokaal gebruik.
 - Kennisbanken aanmaken, bewerken en verwijderen.
 - Documenten uploaden (PDF, DOCX, PPTX, XLSX, ODT, HTML, Markdown, tekst, CSV). Ze worden op
   de achtergrond ingelezen met docling, structuurbewust gechunkt en ge-embed via Ollama.

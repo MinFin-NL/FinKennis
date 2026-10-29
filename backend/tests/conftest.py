@@ -135,7 +135,7 @@ async def app(fake_ollama, fake_chat, tmp_path):
 
     settings = get_settings()
     settings.upload_dir = tmp_path / "uploads"
-    fastapi_app.state.ollama = fake_ollama
+    fastapi_app.state.embedder = fake_ollama
     fastapi_app.state.chatmodel = fake_chat.model
     yield fastapi_app
     fastapi_app.dependency_overrides.clear()
