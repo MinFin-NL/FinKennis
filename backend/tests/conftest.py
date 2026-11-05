@@ -21,6 +21,7 @@ from pydantic_ai.messages import (  # noqa: E402
     ModelRequest,
     ModelResponse,
     TextPart,
+    ToolCallPart,
     UserPromptPart,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel  # noqa: E402
@@ -67,17 +68,50 @@ def _als_tekst(messages: list[ModelMessage]) -> list[dict]:
     return uit
 
 
+def _geen_bevindingen(sectie: str) -> list[dict]:
+    return []
+
+
+def _alles_houden(lijst: str) -> list[dict]:
+    """Samenvoegen dat elke bevinding als eigen inzicht teruggeeft."""
+    return [
+        {
+            "thema": "Thema",
+            "tekst": f"Inzicht {n}",
+            "soort": "overig",
+            "belang": 2,
+            "bevindingen": [n],
+        }
+        for n in range(1, lijst.count("\n[") + 2)
+    ]
+
+
 class FakeChat:
     """Neemt op wat de agents naar het model sturen. Het herschrijven loopt zonder streaming,
-    het antwoord met."""
+    het antwoord met. De inzichten-agents vragen gestructureerde uitvoer (een output tool);
+    wat ze terugkrijgen, bepalen `bevindingen` en `samenvoegen`."""
 
     def __init__(self):
         self.laatste_berichten: list[dict] | None = None
         self.herschrijfberichten: list[dict] | None = None
         self.herschreven = ""
+        self.secties: list[str] = []
+        self.samenvoegprompt: str | None = None
+        self.bevindingen = _geen_bevindingen
+        self.samenvoegen = _alles_houden
         self.model = FunctionModel(self._herschrijf, stream_function=self._antwoord)
 
     def _herschrijf(self, messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        if info.output_tools:
+            tool = info.output_tools[0]
+            prompt = [b for b in _als_tekst(messages) if b["role"] == "user"][-1]["content"]
+            if "bevindingen" in tool.parameters_json_schema.get("properties", {}):
+                self.secties.append(prompt)
+                args = {"bevindingen": self.bevindingen(prompt)}
+            else:
+                self.samenvoegprompt = prompt
+                args = {"inzichten": self.samenvoegen(prompt)}
+            return ModelResponse(parts=[ToolCallPart(tool.name, args)])
         self.herschrijfberichten = _als_tekst(messages)
         return ModelResponse(parts=[TextPart(self.herschreven)])
 

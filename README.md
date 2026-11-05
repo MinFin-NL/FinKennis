@@ -67,6 +67,10 @@ make migrate
 make dev
 ```
 
+Om snel iets uit te proberen kan stap 3 en 4 ook in één keer, zonder inloggen:
+`make lokaal` start de database, draait de migraties en start backend en frontend. Je werkt
+dan als lokale dev-gebruiker. Alleen gebruikersbeheer ontbreekt; dat vraagt Keycloak.
+
 De eerste keer dat je een PDF inleest, downloadt docling zijn layoutmodellen (een paar
 honderd MB). Daarna werkt het offline.
 

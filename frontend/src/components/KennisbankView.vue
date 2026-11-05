@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
-import { api, type Kennisbank } from '../api';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
+import { api, type InzichtenStatus, type Kennisbank } from '../api';
 import BevestigDialog from './BevestigDialog.vue';
 import ChatInvoer from './ChatInvoer.vue';
 import ChatTab from './ChatTab.vue';
@@ -31,6 +31,24 @@ onMounted(() => {
 });
 onUnmounted(() => observer?.disconnect());
 
+// Hoe ver de inzichten zijn, voor de chat: zolang er nog documenten onderweg zijn, elke tien
+// seconden bijwerken.
+const inzichten = ref<InzichtenStatus | null>(null);
+let inzichtenTimer: number | undefined;
+async function laadInzichten() {
+  window.clearTimeout(inzichtenTimer);
+  try {
+    inzichten.value = await api.inzichtenStatus(props.kennisbank.id);
+  } catch {
+    // Niet erg: de chat werkt ook zonder; volgende keer opnieuw.
+  }
+  if (inzichten.value?.documentenOnderweg) inzichtenTimer = window.setTimeout(laadInzichten, 10000);
+}
+onMounted(laadInzichten);
+onUnmounted(() => window.clearTimeout(inzichtenTimer));
+watch(() => props.kennisbank.id, laadInzichten);
+watch(tab, laadInzichten);
+
 function kiesTab(e: Event) {
   const item = (e as CustomEvent).detail?.item as HTMLElement | undefined;
   tab.value = item?.dataset.tab === 'documenten' ? 'documenten' : 'chat';
@@ -42,6 +60,8 @@ async function verwijder() {
 }
 
 function documentenGewijzigd(aantal: number) {
+  // Nieuwe uploads krijgen straks ook inzichten; de status meteen bijwerken.
+  laadInzichten();
   if (aantal !== props.kennisbank.aantalDocumenten) {
     emit('bijgewerkt', { ...props.kennisbank, aantalDocumenten: aantal });
   }
@@ -101,7 +121,8 @@ function documentenGewijzigd(aantal: number) {
       slot="footer"
       :bezig="chat?.bezig ?? false"
       :vervolg="!!chat?.actief"
-      @verstuur="chat?.verstuur($event)"
+      :inzichten="inzichten"
+      @verstuur="(vraag, modus) => chat?.verstuur(vraag, modus)"
       @stop="chat?.stop()"
     />
   </nldd-page>

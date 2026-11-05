@@ -20,7 +20,22 @@ export interface KbDocument {
   status: DocumentStatus;
   foutmelding: string | null;
   aantalChunks: number;
+  inzichtenStatus: DocumentStatus;
+  inzichtenFoutmelding: string | null;
+  aantalInzichten: number;
+  inzichtenSectiesKlaar: number;
+  inzichtenSectiesTotaal: number;
   createdAt: string;
+}
+
+/** Hoe ver de inzichten van een kennisbank zijn. */
+export interface InzichtenStatus {
+  aantalInzichten: number;
+  documentenKlaar: number;
+  documentenOnderweg: number;
+  documentenMislukt: number;
+  sectiesKlaar: number;
+  sectiesTotaal: number;
 }
 
 export interface Bron {
@@ -32,9 +47,22 @@ export interface Bron {
   fragment: string;
 }
 
+export interface Inzicht {
+  id: string;
+  thema: string;
+  soort: string;
+  belang: number;
+  tekst: string;
+  bronnen: { chunkId: string; pagina: number | null; kopjes: string[]; fragment: string }[];
+}
+
+/** vraag: zoeken in fragmenten. inzichten: kiezen uit vooraf uit hele documenten gehaalde inzichten. */
+export type Modus = 'vraag' | 'inzichten';
+
 export interface Bericht {
   id: string;
   rol: 'user' | 'assistant';
+  modus: Modus;
   inhoud: string;
   bronnen: Bron[];
   createdAt: string;
@@ -132,6 +160,11 @@ export const api = {
   },
   verwijderDocument: (kbId: string, docId: string) =>
     request<void>(`/kennisbanken/${kbId}/documenten/${docId}`, { method: 'DELETE' }),
+  inzichtenStatus: (kbId: string) => request<InzichtenStatus>(`/kennisbanken/${kbId}/inzichtenstatus`),
+  inzichten: (kbId: string, docId: string) =>
+    request<Inzicht[]>(`/kennisbanken/${kbId}/documenten/${docId}/inzichten`),
+  maakInzichtenOpnieuw: (kbId: string, docId: string) =>
+    request<KbDocument>(`/kennisbanken/${kbId}/documenten/${docId}/inzichten`, { method: 'POST' }),
 
   gesprekken: (kbId: string) => request<Gesprek[]>(`/kennisbanken/${kbId}/gesprekken`),
   maakGesprek: (kbId: string) =>
@@ -162,6 +195,7 @@ export interface StreamHandlers {
 export async function stelVraag(
   gesprekId: string,
   inhoud: string,
+  modus: Modus,
   on: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -172,7 +206,7 @@ export async function stelVraag(
   const resp = await fetch(`${BASE}/gesprekken/${gesprekId}/berichten`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ inhoud }),
+    body: JSON.stringify({ inhoud, modus }),
     signal,
   });
   if (!resp.ok || !resp.body) throw await toError(resp);

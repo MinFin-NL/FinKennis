@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     retrieval_top_k: int = 6
     history_messages: int = 6
 
+    # Inzichten: elk document wordt na het verwerken een keer helemaal gelezen.
+    inzichten_enabled: bool = True
+    inzichten_sectie_tokens: int = 3000
+    inzichten_gelijktijdig: int = 4
+    inzichten_per_document: int = 20
+    inzichten_in_antwoord: int = 25
+
     cors_origins: list[str] = ["http://localhost:5190"]
 
     auth_mode: Literal["none", "oidc"] = "none"

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref } from 'vue';
-import { api, stelVraag, type Bericht, type Gesprek, type Kennisbank } from '../api';
+import { api, stelVraag, type Bericht, type Gesprek, type Kennisbank, type Modus } from '../api';
 import AntwoordTekst from './AntwoordTekst.vue';
 import BevestigDialog from './BevestigDialog.vue';
 
@@ -118,7 +118,7 @@ function koppelScroll() {
   gekoppeld = doel;
 }
 
-async function verstuur(vraag: string) {
+async function verstuur(vraag: string, modus: Modus = 'vraag') {
   if (bezig.value) return;
   fout.value = null;
   bezig.value = true;
@@ -128,8 +128,8 @@ async function verstuur(vraag: string) {
       actief.value = await api.maakGesprek(props.kennisbank.id);
     }
     const nu = new Date().toISOString();
-    berichten.value.push({ id: `v-${nu}`, rol: 'user', inhoud: vraag, bronnen: [], createdAt: nu });
-    berichten.value.push({ id: `a-${nu}`, rol: 'assistant', inhoud: '', bronnen: [], createdAt: nu });
+    berichten.value.push({ id: `v-${nu}`, rol: 'user', modus, inhoud: vraag, bronnen: [], createdAt: nu });
+    berichten.value.push({ id: `a-${nu}`, rol: 'assistant', modus, inhoud: '', bronnen: [], createdAt: nu });
     // Via de reactieve array muteren, zodat Vue elke token ziet.
     const antwoord = berichten.value[berichten.value.length - 1];
     koppelScroll();
@@ -139,6 +139,7 @@ async function verstuur(vraag: string) {
     await stelVraag(
       actief.value.id,
       vraag,
+      modus,
       {
         bronnen: (b) => (antwoord.bronnen = b),
         token: (t) => {
@@ -225,7 +226,7 @@ function datum(iso: string) {
         v-else
         icon="sparkles"
         text="Stel een vraag over de documenten"
-        supporting-text="De assistent zoekt het antwoord op in deze kennisbank en noemt de bronnen. Controleer belangrijke antwoorden altijd in het document zelf."
+        supporting-text="Kies onderaan wat je wilt. Vraag: feiten die in de documenten staan, met bronnen. Inzichten: wat er opvalt, zoals risico's, afwijkingen en besluiten, uit de hele documenten gehaald. Controleer belangrijke antwoorden altijd in het document zelf."
       ></nldd-inline-dialog>
 
       <nldd-container v-if="gesprekken.length" gap="8">
@@ -248,10 +249,18 @@ function datum(iso: string) {
         <!-- NLDD-containers hebben size containment en krimpen niet tot hun tekst; daarom een
              vraag als blok over de volle breedte. -->
         <nldd-box v-if="b.rol === 'user'" background="accent-tinted">
-          <nldd-container padding="12"><span class="vraag-tekst">{{ b.inhoud }}</span></nldd-container>
+          <nldd-container padding="12" gap="8">
+            <nldd-tag v-if="b.modus === 'inzichten'" size="sm" color="accent" icon="sparkles" text="Inzichten"></nldd-tag>
+            <span class="vraag-tekst">{{ b.inhoud }}</span>
+          </nldd-container>
         </nldd-box>
         <nldd-container v-else gap="12">
-          <nldd-activity-indicator v-if="!b.inhoud && bezig" size="24" text="Antwoord wordt gemaakt" show-text></nldd-activity-indicator>
+          <nldd-activity-indicator
+            v-if="!b.inhoud && bezig"
+            size="24"
+            :text="b.modus === 'inzichten' ? 'Inzichten worden gekozen' : 'Antwoord wordt gemaakt'"
+            show-text
+          ></nldd-activity-indicator>
           <AntwoordTekst :tekst="b.inhoud" />
           <nldd-container v-if="!(bezig && i === berichten.length - 1) && geciteerd(b).length" gap="8">
             <nldd-text size="sm" color="secondary">Bronnen</nldd-text>

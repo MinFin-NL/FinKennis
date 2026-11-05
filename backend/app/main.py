@@ -14,7 +14,7 @@ from app.db import SessionLocal, engine
 from app.errors import install_handlers
 from app.keycloak import KeycloakAdmin
 from app.llm import maak_taalmodellen
-from app.rag.ingest_worker import requeue_stuck, run_worker
+from app.rag.ingest_worker import requeue_stuck, run_inzichten_worker, run_worker
 
 # Geen welkomstbanner van Pydantic AI tussen de serverlogs.
 pydantic_ai.BANNER_ENABLED = False
@@ -42,6 +42,14 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(run_worker(SessionLocal, app.state.embedder, settings))
             for _ in range(settings.ingest_concurrency)
         ]
+        if settings.inzichten_enabled:
+            workers.append(
+                asyncio.create_task(
+                    run_inzichten_worker(
+                        SessionLocal, app.state.embedder, app.state.chatmodel, settings
+                    )
+                )
+            )
     yield
     for w in workers:
         w.cancel()

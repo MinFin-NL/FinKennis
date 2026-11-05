@@ -1,6 +1,6 @@
 BACKEND_PORT ?= 8400
 
-.PHONY: install db migrate backend frontend dev test lint auth
+.PHONY: install db migrate backend frontend dev lokaal test lint auth
 
 install:
 	cd backend && uv sync
@@ -23,6 +23,14 @@ frontend:
 
 dev:
 	$(MAKE) -j2 backend frontend
+
+# Alles in één keer, zonder inloggen: database, migraties, backend en frontend. Je bent de
+# lokale dev-gebruiker. Omgevingsvariabelen gaan voor .env, dus dit werkt ook als daar
+# AUTH_MODE=oidc staat. Gebruikersbeheer werkt zo niet; dat vraagt Keycloak (make auth).
+lokaal:
+	docker compose up -d --wait db
+	$(MAKE) migrate
+	AUTH_MODE=none VITE_AUTH_MODE=none $(MAKE) -j2 backend frontend
 
 test:
 	cd backend && uv run pytest

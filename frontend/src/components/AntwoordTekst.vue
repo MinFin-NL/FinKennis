@@ -7,17 +7,33 @@ const props = defineProps<{ tekst: string }>();
 
 type Blok = { soort: 'p'; tekst: string } | { soort: 'ul' | 'ol'; items: string[] };
 
+const UL = /^\s*[-*•]\s+/;
+const OL = /^\s*\d+[.)]\s+/;
+// Een kopje (### Thema) tonen we als vetgedrukte regel.
+const KOP = /^\s*#{1,6}\s+(.*)$/;
+
 const blokken = computed<Blok[]>(() => {
   const resultaat: Blok[] = [];
   for (const deel of props.tekst.split(/\n\s*\n/)) {
-    const regels = deel.split('\n').filter((r) => r.trim());
-    if (!regels.length) continue;
-    if (regels.every((r) => /^\s*[-*•]\s+/.test(r))) {
-      resultaat.push({ soort: 'ul', items: regels.map((r) => r.replace(/^\s*[-*•]\s+/, '')) });
-    } else if (regels.every((r) => /^\s*\d+[.)]\s+/.test(r))) {
-      resultaat.push({ soort: 'ol', items: regels.map((r) => r.replace(/^\s*\d+[.)]\s+/, '')) });
-    } else {
-      resultaat.push({ soort: 'p', tekst: regels.join('\n') });
+    // Binnen een alinea kunnen een kopje en een opsomming direct op elkaar volgen.
+    // Opeenvolgende regels van dezelfde soort vormen samen een blok; een kopje staat apart.
+    let huidig = null as Blok | null;
+    for (const r of deel.split('\n').filter((r) => r.trim())) {
+      const kop = r.match(KOP);
+      if (kop) {
+        resultaat.push({ soort: 'p', tekst: `**${kop[1].replace(/\*\*/g, '')}**` });
+        huidig = null;
+        continue;
+      }
+      const soort = UL.test(r) ? 'ul' : OL.test(r) ? 'ol' : 'p';
+      if (soort === 'p') {
+        if (huidig?.soort === 'p') huidig.tekst += '\n' + r;
+        else resultaat.push((huidig = { soort: 'p', tekst: r }));
+      } else {
+        const item = r.replace(soort === 'ul' ? UL : OL, '');
+        if (huidig?.soort === soort) huidig.items.push(item);
+        else resultaat.push((huidig = { soort, items: [item] }));
+      }
     }
   }
   return resultaat;

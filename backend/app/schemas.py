@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -37,6 +38,11 @@ class DocumentOut(Schema):
     status: DocumentStatus
     foutmelding: str | None
     aantal_chunks: int
+    inzichten_status: DocumentStatus
+    inzichten_foutmelding: str | None
+    aantal_inzichten: int
+    inzichten_secties_klaar: int
+    inzichten_secties_totaal: int
     created_at: datetime
 
 
@@ -51,11 +57,17 @@ class GesprekIn(Schema):
 
 class BerichtIn(Schema):
     inhoud: str = Field(min_length=1, max_length=4000)
+    modus: Literal["vraag", "inzichten"] = Field(
+        default="vraag",
+        description="vraag: zoeken in de fragmenten. inzichten: kiezen uit de inzichten die "
+        "vooraf uit de hele documenten zijn gehaald.",
+    )
 
 
 class BerichtOut(Schema):
     id: uuid.UUID
     rol: str
+    modus: str
     inhoud: str
     bronnen: list[dict]
     created_at: datetime
@@ -106,3 +118,31 @@ class GebruikerPatch(Schema):
 class TijdelijkWachtwoord(Schema):
     id: str
     tijdelijk_wachtwoord: str
+
+
+class InzichtBron(Schema):
+    chunk_id: uuid.UUID
+    pagina: int | None
+    kopjes: list[str]
+    fragment: str
+
+
+class InzichtOut(Schema):
+    id: uuid.UUID
+    thema: str
+    soort: str
+    belang: int
+    tekst: str
+    bronnen: list[InzichtBron]
+
+
+class InzichtenStatus(Schema):
+    """Hoe ver de kennisbank is met inzichten. Een document telt als onderweg zolang het
+    verwerkt is maar zijn inzichten nog niet klaar zijn."""
+
+    aantal_inzichten: int
+    documenten_klaar: int
+    documenten_onderweg: int
+    documenten_mislukt: int
+    secties_klaar: int
+    secties_totaal: int

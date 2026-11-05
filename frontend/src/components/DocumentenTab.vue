@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { api, type DocumentStatus, type KbDocument, type Kennisbank } from '../api';
 import BevestigDialog from './BevestigDialog.vue';
+import InzichtenSheet from './InzichtenSheet.vue';
 
 const props = defineProps<{ kennisbank: Kennisbank }>();
 const emit = defineEmits<{ gewijzigd: [aantal: number] }>();
@@ -16,6 +17,9 @@ const melding = ref<{ variant: 'success' | 'warning' | 'critical'; text: string;
   null,
 );
 const teVerwijderen = ref<KbDocument | null>(null);
+// Het id, niet het document: zo ziet de sheet de bijgewerkte status uit de lijst.
+const inzichtenVan = ref<string | null>(null);
+const inzichtenDoc = computed(() => documenten.value.find((d) => d.id === inzichtenVan.value) ?? null);
 let timer: number | undefined;
 
 const STATUS: Record<DocumentStatus, { tekst: string; kleur: string }> = {
@@ -33,8 +37,11 @@ const ICOON: Record<string, string> = {
   txt: 'text-document',
 };
 
-const inBehandeling = computed(() =>
-  documenten.value.some((d) => d.status === 'wachtrij' || d.status === 'verwerken'),
+const bezigeStatus = (s: DocumentStatus) => s === 'wachtrij' || s === 'verwerken';
+const inBehandeling = computed(() => documenten.value.some((d) => bezigeStatus(d.status)));
+// Na het verwerken worden de inzichten gemaakt; dat duurt langer, dus rustiger bijwerken.
+const inzichtenOnderweg = computed(() =>
+  documenten.value.some((d) => d.status === 'gereed' && bezigeStatus(d.inzichtenStatus)),
 );
 
 async function laad() {
@@ -47,6 +54,7 @@ async function laad() {
   // Zolang er iets verwerkt wordt, de status elke 2 seconden bijwerken.
   window.clearTimeout(timer);
   if (inBehandeling.value) timer = window.setTimeout(laad, 2000);
+  else if (inzichtenOnderweg.value) timer = window.setTimeout(laad, 5000);
 }
 
 function kies(e: Event) {
@@ -101,6 +109,43 @@ function omschrijving(d: KbDocument) {
   return d.status === 'gereed' ? `${kb} · ${d.aantalChunks} fragmenten` : kb;
 }
 
+// Inzichten komen na het verwerken; zolang het document zelf nog niet klaar is, niets tonen.
+function inzichtenBadge(d: KbDocument): { tekst: string; kleur: string } | null {
+  if (d.status !== 'gereed') return null;
+  switch (d.inzichtenStatus) {
+    case 'wachtrij':
+      return { tekst: 'Inzichten in de wachtrij', kleur: 'neutral' };
+    case 'verwerken':
+      return {
+        tekst: d.inzichtenSectiesTotaal
+          ? `Inzichten ${d.inzichtenSectiesKlaar}/${d.inzichtenSectiesTotaal}`
+          : 'Inzichten worden gemaakt',
+        kleur: 'accent',
+      };
+    case 'fout':
+      return { tekst: 'Inzichten mislukt', kleur: 'critical' };
+    default:
+      return { tekst: d.aantalInzichten === 1 ? '1 inzicht' : `${d.aantalInzichten} inzichten`, kleur: 'success' };
+  }
+}
+
+// Het lampje blijft klikbaar, ook als er nog niets is: het paneel laat dan de voortgang zien.
+function inzichtenNogNiet(d: KbDocument) {
+  return bezigeStatus(d.inzichtenStatus) && d.aantalInzichten === 0;
+}
+
+const voortgang = computed(() => {
+  const klaar = documenten.value.filter((d) => d.status === 'gereed');
+  const onderweg = klaar.filter((d) => bezigeStatus(d.inzichtenStatus));
+  return { onderweg: onderweg.length, klaar: klaar.length - onderweg.length, totaal: klaar.length };
+});
+
+function inzichtenBijgewerkt(doc: KbDocument) {
+  const i = documenten.value.findIndex((d) => d.id === doc.id);
+  if (i >= 0) documenten.value[i] = doc;
+  laad();
+}
+
 onMounted(laad);
 onUnmounted(() => window.clearTimeout(timer));
 </script>
@@ -130,6 +175,14 @@ onUnmounted(() => window.clearTimeout(timer));
       @dismiss="melding = null"
     ></nldd-banner>
 
+    <nldd-banner
+      v-if="voortgang.onderweg"
+      variant="accent"
+      icon="lightbulb"
+      :text="`Inzichten worden gemaakt: ${voortgang.klaar} van ${voortgang.totaal} documenten klaar`"
+      supporting-text="Het taalmodel leest elk document helemaal, sectie voor sectie, kleine documenten eerst. Bij grote documenten kan dat lang duren, zeker met een lokaal model. Vragen stellen kan intussen gewoon."
+    ></nldd-banner>
+
     <nldd-list appearance="box-base" accessible-label="Documenten">
       <nldd-list-item v-for="d in documenten" :key="d.id">
         <nldd-icon-cell :icon="icoon(d.bestandsnaam)" :color="d.status === 'fout' ? 'critical' : 'content'"></nldd-icon-cell>
@@ -139,6 +192,22 @@ onUnmounted(() => window.clearTimeout(timer));
         <nldd-cell>
           <nldd-badge size="sm" :color="STATUS[d.status].kleur" :text="STATUS[d.status].tekst"></nldd-badge>
         </nldd-cell>
+        <template v-if="inzichtenBadge(d)">
+          <nldd-spacer-cell size="8"></nldd-spacer-cell>
+          <nldd-cell>
+            <nldd-badge size="sm" :color="inzichtenBadge(d)!.kleur" :text="inzichtenBadge(d)!.tekst"></nldd-badge>
+          </nldd-cell>
+          <nldd-spacer-cell size="8"></nldd-spacer-cell>
+          <nldd-cell>
+            <nldd-icon-button
+              icon="lightbulb"
+              appearance="neutral-transparent"
+              size="sm"
+              :text="inzichtenNogNiet(d) ? `Voortgang van de inzichten uit ${d.bestandsnaam}` : `Inzichten uit ${d.bestandsnaam} bekijken`"
+              @click="inzichtenVan = d.id"
+            ></nldd-icon-button>
+          </nldd-cell>
+        </template>
         <nldd-spacer-cell size="8"></nldd-spacer-cell>
         <nldd-cell>
           <nldd-icon-button
@@ -154,12 +223,19 @@ onUnmounted(() => window.clearTimeout(timer));
         slot="empty"
         icon="documents"
         text="Nog geen documenten"
-        supporting-text="Voeg hierboven documenten toe. Ze worden automatisch gelezen en doorzoekbaar gemaakt."
+        supporting-text="Voeg hierboven documenten toe. Ze worden automatisch gelezen en doorzoekbaar gemaakt, en daarna haalt de assistent er de inzichten uit."
       ></nldd-inline-dialog>
     </nldd-list>
   </nldd-container>
 
   <Teleport to="body">
+    <InzichtenSheet
+      :open="!!inzichtenDoc"
+      :kennisbank="kennisbank"
+      :document="inzichtenDoc"
+      @close="inzichtenVan = null"
+      @gewijzigd="inzichtenBijgewerkt"
+    />
     <BevestigDialog
       :open="!!teVerwijderen"
       :text="`${teVerwijderen?.bestandsnaam ?? 'Document'} verwijderen?`"

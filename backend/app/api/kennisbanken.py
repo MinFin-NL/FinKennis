@@ -3,8 +3,8 @@ from sqlalchemy import func, select
 
 from app.api.deps import EigenKennisbank, Session
 from app.auth import CurrentUser
-from app.models import Document, Kennisbank
-from app.schemas import KennisbankIn, KennisbankOut, KennisbankPatch
+from app.models import Document, DocumentStatus, Kennisbank
+from app.schemas import InzichtenStatus, KennisbankIn, KennisbankOut, KennisbankPatch
 from app.storage import verwijder_bestanden
 
 router = APIRouter(prefix="/kennisbanken", tags=["Kennisbanken"])
@@ -47,6 +47,31 @@ async def maak(body: KennisbankIn, user: CurrentUser, session: Session, response
 @router.get("/{kennisbank_id}", response_model=KennisbankOut)
 async def lees(kb: EigenKennisbank, session: Session):
     return _out(kb, await _aantal_documenten(session, kb))
+
+
+@router.get("/{kennisbank_id}/inzichtenstatus", response_model=InzichtenStatus)
+async def inzichtenstatus(kb: EigenKennisbank, session: Session):
+    """Hoe ver de inzichten van deze kennisbank zijn, zodat de chat kan zeggen of de modus
+    Inzichten al iets oplevert."""
+    docs = (
+        await session.execute(
+            select(
+                Document.inzichten_status,
+                Document.aantal_inzichten,
+                Document.inzichten_secties_klaar,
+                Document.inzichten_secties_totaal,
+            ).where(Document.kennisbank_id == kb.id, Document.status == DocumentStatus.gereed)
+        )
+    ).all()
+    onderweg = [d for d in docs if d[0] in (DocumentStatus.wachtrij, DocumentStatus.verwerken)]
+    return InzichtenStatus(
+        aantal_inzichten=sum(d[1] for d in docs),
+        documenten_klaar=sum(d[0] == DocumentStatus.gereed for d in docs),
+        documenten_onderweg=len(onderweg),
+        documenten_mislukt=sum(d[0] == DocumentStatus.fout for d in docs),
+        secties_klaar=sum(d[2] for d in onderweg),
+        secties_totaal=sum(d[3] for d in onderweg),
+    )
 
 
 @router.patch("/{kennisbank_id}", response_model=KennisbankOut)

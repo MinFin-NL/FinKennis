@@ -9,6 +9,12 @@ project volgt [Semantic Versioning](https://semver.org/lang/nl/).
 
 ### Toegevoegd
 
+- Inzichten: na het verwerken leest het taalmodel elk document helemaal, sectie voor sectie,
+  en bewaart de opvallende bevindingen (cijfers, risico's, besluiten, afwijkingen,
+  tegenstrijdigheden) met de fragmenten waar ze op steunen. In de chat kiest de modus
+  "Inzichten" daaruit, ook als een bevinding diep in een document staat. Gewone vragen
+  vinden fragmenten nu ook via de inzichten. Bestaande documenten krijgen hun inzichten
+  alsnog. In te stellen met `INZICHTEN_*`.
 - Uitrollen naar Azure Container Apps via Azure DevOps (`azure-pipelines.yml`, `azure/main.bicep`),
   naast de invulhulp, met een eigen pgvector-database en de realm `finkennis` op de gedeelde
   Keycloak. Dockerfiles voor backend en frontend.
