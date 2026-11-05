@@ -21,6 +21,55 @@ invulhulp; zie [Uitrollen naar Azure](#uitrollen-naar-azure).
 > assistent is ingesteld om alleen uit de documenten te antwoorden en altijd zijn bronnen te
 > noemen. Controleer belangrijke antwoorden in het brondocument.
 
+![FinKennis: een kennisbank met chat](docs/screenshots/chat-antwoord.png)
+
+## Functies
+
+- **Kennisbanken.** Maak per onderwerp een kennisbank, bijvoorbeeld "Prinsjesdag 2026", en
+  wissel ertussen in de zijbalk. Een kennisbank kun je hernoemen, een omschrijving geven en
+  verwijderen.
+- **Documenten uploaden.** PDF, Word, PowerPoint, Excel, ODT, HTML, Markdown, tekst en CSV,
+  tot 50 MB per bestand. Slepen of kiezen. Ze worden op de achtergrond ingelezen; per document
+  zie je de status, het aantal fragmenten en hoe ver de inzichten zijn. Hetzelfde bestand
+  twee keer uploaden heeft geen effect: FinKennis herkent het aan zijn sha256.
+- **Vraag: feiten met bronnen.** Stel een vraag en krijg een gestreamd antwoord met
+  genummerde verwijzingen. Onder het antwoord staan de bronnen: bestand, pagina, kopje en het
+  stuk tekst zelf. Staat het antwoord niet in de documenten, dan zegt de assistent dat.
+- **Inzichten: wat valt op.** Na het inlezen leest het taalmodel elk document helemaal, sectie
+  voor sectie, ook de bijlagen. Het bewaart wat opvalt (cijfers, risico's, besluiten,
+  afwijkingen, tegenstrijdigheden) met de pagina's waar het op steunt. In de chat kies je de
+  modus "Inzichten" voor vragen als "wat valt op aan de risico's?". Per document bekijk je de
+  inzichten via het lampje bij Documenten.
+- **Hybride zoeken.** Op betekenis (pgvector) en op trefwoorden (Nederlandse full-text),
+  samengevoegd met Reciprocal Rank Fusion, zodat ook een exact artikelnummer gevonden wordt.
+- **Gesprekken.** Gesprekken blijven bewaard per kennisbank. Vervolgvragen als "en voor
+  deeltijders?" worden met het eerdere gesprek herschreven tot een zelfstandige zoekvraag.
+  Een gesprek kun je verwijderen.
+- **Inloggen en gebruikersbeheer.** Optioneel inloggen via Keycloak (SSO). Elke gebruiker ziet
+  alleen zijn eigen kennisbanken. Beheerders maken gebruikers aan, resetten wachtwoorden en
+  kennen rollen toe vanuit de app zelf.
+- **Lokaal of in Azure.** Lokaal draait alles op Ollama en verlaat geen document je machine.
+  In Azure gebruikt FinKennis Azure OpenAI.
+- **NLDD Designsysteem.** De interface is gebouwd met de componenten van de Rijksoverheid en
+  werkt ook op mobiel.
+
+### Screenshots
+
+**Een kennisbank: vragen stellen en eerdere gesprekken terugvinden**
+![Kennisbank](docs/screenshots/kennisbank.png)
+
+**Antwoord met bronverwijzingen: bestand, pagina, kopje en het stuk tekst**
+![Antwoord met bronnen](docs/screenshots/chat-antwoord.png)
+
+**Twee manieren om te vragen: Vraag (feiten uit de tekst) en Inzichten (wat valt op)**
+![Vraag of Inzichten](docs/screenshots/vraag-of-inzichten.png)
+
+**Documenten uploaden, met de status van inlezen en inzichten per document**
+![Documenten](docs/screenshots/documenten.png)
+
+**De inzichten uit één document, met soort, onderwerp en pagina**
+![Inzichten per document](docs/screenshots/inzichten.png)
+
 ## Hoe het werkt
 
 ```
