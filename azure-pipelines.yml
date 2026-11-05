@@ -14,11 +14,14 @@
 # uitgerold door de Keycloak-pipeline; draai die eerst.
 #
 # Nodig in Azure DevOps (Pipelines > Library):
-#   - 'invulhulp-secrets'  AZURE_SERVICE_CONNECTION, de Azure OpenAI-waarden
-#                          (AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY,
-#                          AZURE_OPENAI_EMBEDDING_ENDPOINT,
+#   - 'invulhulp-secrets'  AZURE_SERVICE_CONNECTION, de embedding-waarden
+#                          (AZURE_OPENAI_EMBEDDING_ENDPOINT,
 #                          AZURE_OPENAI_EMBEDDING_API_KEY) en ALLOWED_IP_1..4.
-#                          Gedeeld met de invulhulp: zelfde model, zelfde netwerk.
+#                          Gedeeld met de invulhulp: zelfde netwerk.
+#   - 'kdai-secrets'       AZURE_OPENAI_ENDPOINT en AZURE_OPENAI_KEY voor het
+#                          chatmodel (oai-kdai-inno-d, deployment gpt-5.3-chat).
+#                          Staat ná invulhulp-secrets in de lijst: die heeft ook
+#                          een AZURE_OPENAI_ENDPOINT, en de laatste groep wint.
 #   - 'keycloak-secrets'   FINKENNIS_ADMIN_CLIENT_SECRET (secret): het secret van
 #                          de finkennis-admin-client. Keycloak rendert het in de
 #                          realm, de backend gebruikt het voor gebruikersbeheer.
@@ -48,6 +51,8 @@ variables:
   - group: invulhulp-secrets
   - group: keycloak-secrets
   - group: finkennis-secrets
+  # Moet na invulhulp-secrets: overschrijft AZURE_OPENAI_ENDPOINT met die van KDAI.
+  - group: kdai-secrets
   - name: ENVIRONMENT_NAME
     value: inno-d
   - name: RESOURCE_GROUP
@@ -164,7 +169,7 @@ stages:
               ALLOWED_IP_4: $(ALLOWED_IP_4)
               # Secret variables komen alleen via env in een script terecht.
               AZURE_OPENAI_ENDPOINT: $(AZURE_OPENAI_ENDPOINT)
-              AZURE_OPENAI_API_KEY: $(AZURE_OPENAI_API_KEY)
+              AZURE_OPENAI_API_KEY: $(AZURE_OPENAI_KEY)
               AZURE_OPENAI_EMBEDDING_ENDPOINT: $(AZURE_OPENAI_EMBEDDING_ENDPOINT)
               AZURE_OPENAI_EMBEDDING_API_KEY: $(AZURE_OPENAI_EMBEDDING_API_KEY)
               FINKENNIS_PG_PASSWORD: $(FINKENNIS_PG_PASSWORD)
@@ -185,6 +190,17 @@ stages:
 
                 if [[ ! "$FINKENNIS_PG_PASSWORD" =~ ^[A-Za-z0-9]+$ ]]; then
                   echo "##[error]FINKENNIS_PG_PASSWORD ontbreekt of bevat andere tekens dan letters en cijfers; het komt in een database-URL. Gebruik openssl rand -hex 24." >&2
+                  exit 1
+                fi
+
+                # Een ontbrekende variabele komt als letterlijke '$(NAAM)' binnen en geeft
+                # pas bij de eerste chatvraag een vage 'Connection error'.
+                if [[ ! "$AZURE_OPENAI_ENDPOINT" =~ ^https:// ]]; then
+                  echo "##[error]AZURE_OPENAI_ENDPOINT (kdai-secrets) ontbreekt of begint niet met https://." >&2
+                  exit 1
+                fi
+                if [[ -z "$AZURE_OPENAI_API_KEY" || "$AZURE_OPENAI_API_KEY" == '$('* ]]; then
+                  echo "##[error]AZURE_OPENAI_KEY (kdai-secrets) ontbreekt." >&2
                   exit 1
                 fi
 

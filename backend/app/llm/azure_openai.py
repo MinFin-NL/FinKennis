@@ -1,5 +1,6 @@
-"""Azure OpenAI, dezelfde deployments als de invulhulp. Chat en embeddings mogen op een
-ander Azure OpenAI-resource staan, daarom elk een eigen endpoint en sleutel."""
+"""Azure OpenAI. Chat en embeddings staan op verschillende Azure OpenAI-resources (in inno-d
+de chat op die van KDAI, de embeddings op die van de invulhulp), daarom elk een eigen
+endpoint en sleutel."""
 
 import httpx
 import openai
