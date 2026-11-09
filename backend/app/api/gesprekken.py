@@ -1,12 +1,14 @@
 import json
 import logging
+import re
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic_ai.exceptions import AgentRunError
 from pydantic_ai.models import Model
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import EigenGesprek, EigenKennisbank, Session
@@ -14,17 +16,23 @@ from app.auth import CurrentUser
 from app.config import Settings, get_settings
 from app.db import SessionLocal
 from app.llm import EmbedClient, EmbedError
-from app.models import Bericht, Document, DocumentStatus, Gesprek
+from app.models import Bericht, Gesprek
 from app.rag.embedding import embed_query
 from app.rag.generation import (
+    Context,
     als_berichten,
     antwoord_agent,
     herschrijf,
-    inzicht_agent,
-    vraag_met_bronnen,
-    vraag_met_inzichten,
+    vraag_met_context,
 )
-from app.rag.retrieval import zoek, zoek_inzichten
+from app.rag.retrieval import (
+    Bron,
+    bronnen_bij,
+    per_document_bij_elkaar,
+    zoek,
+    zoek_inzichten,
+    zoek_per_document,
+)
 from app.schemas import BerichtIn, GesprekDetail, GesprekIn, GesprekOut
 
 log = logging.getLogger(__name__)
@@ -71,21 +79,38 @@ async def verwijder(gesprek: EigenGesprek, session: Session):
     await session.commit()
 
 
-async def _inzichten_onderweg(session, kennisbank_id) -> int:
-    """Documenten die al doorzoekbaar zijn maar nog geen inzichten hebben."""
-    return await session.scalar(
-        select(func.count())
-        .select_from(Document)
-        .where(
-            Document.kennisbank_id == kennisbank_id,
-            Document.status == DocumentStatus.gereed,
-            Document.inzichten_status.in_([DocumentStatus.wachtrij, DocumentStatus.verwerken]),
-        )
-    )
+_BRONNUMMER = re.compile(r"\[(\d+)\]")
 
 
-def _documenten(n: int) -> str:
-    return "1 document" if n == 1 else f"{n} documenten"
+def _eerdere_bronnen(eerdere: list[Bericht], maximum: int) -> tuple[list[uuid.UUID], dict]:
+    """De fragmenten waar eerdere antwoorden naar verwezen, nieuwste antwoord eerst, en per
+    fragment het inzicht dat er toen bij hoorde. Alleen geciteerde bronnen: daar ging het
+    antwoord over."""
+    ids: list[uuid.UUID] = []
+    inzichten: dict[uuid.UUID, str] = {}
+    for b in eerdere:  # nieuwste eerst
+        if b.rol != "assistant":
+            continue
+        geciteerd = {int(n) for n in _BRONNUMMER.findall(b.inhoud)}
+        for bron in b.bronnen or []:
+            if bron.get("nummer") not in geciteerd:
+                continue
+            cid = uuid.UUID(bron["chunkId"])
+            if cid not in ids:
+                ids.append(cid)
+            if bron.get("inzicht"):
+                inzichten.setdefault(cid, bron["inzicht"])
+    return ids[:maximum], inzichten
+
+
+def _samen(eerder: list[Bron], nieuw: list[Bron], maximum: int) -> list[Bron]:
+    gezien: set[uuid.UUID] = set()
+    uit = []
+    for b in [*eerder, *nieuw]:
+        if b.chunk_id not in gezien:
+            gezien.add(b.chunk_id)
+            uit.append(b)
+    return uit[:maximum]
 
 
 def _sse(event: str, data) -> str:
@@ -108,8 +133,10 @@ async def stel_vraag(
     `bronnen` (de gevonden fragmenten), dan `token` per stukje tekst, en tot slot `klaar`
     of `fout`.
 
-    Met modus `inzichten` kiest de assistent uit de inzichten die vooraf uit de hele
-    documenten zijn gehaald, in plaats van te zoeken in losse fragmenten."""
+    Er is één manier van vragen. De assistent krijgt steeds drie dingen: de bronnen waar
+    eerdere antwoorden naar verwezen (zodat je kunt doorpraten), de fragmenten die bij de vraag
+    gevonden worden, en de inzichten die vooraf uit de hele documenten zijn gehaald (voor wat
+    er opvalt, ook over documenten heen). Feiten krijgen een bron; meedenken staat apart."""
     embedder: EmbedClient = request.app.state.embedder
     chatmodel: Model = request.app.state.chatmodel
     vraag = body.inhoud.strip()
@@ -124,7 +151,7 @@ async def stel_vraag(
     ).all()
     geschiedenis = [(b.rol, b.inhoud) for b in reversed(eerdere)]
 
-    modus = body.modus
+    modus = "chat"
     session.add(Bericht(gesprek_id=gesprek.id, rol="user", modus=modus, inhoud=vraag, bronnen=[]))
     if gesprek.titel == NIEUW_GESPREK:
         gesprek.titel = vraag[:80] + ("…" if len(vraag) > 80 else "")
@@ -140,56 +167,52 @@ async def stel_vraag(
             # versie die het onderwerp uit het gesprek meeneemt.
             zoekvraag = await herschrijf(chatmodel, vraag, geschiedenis) if geschiedenis else vraag
             vector = await embed_query(embedder, zoekvraag)
-            onderweg = 0
+            ids, eerdere_inzichten = _eerdere_bronnen(eerdere, settings.chat_eerdere_bronnen)
             async with SessionLocal() as s:
-                if modus == "inzichten":
-                    inzichten = await zoek_inzichten(
-                        s, kennisbank_id, vector, settings.inzichten_in_antwoord
-                    )
-                    bronnen = [g.bron for g in inzichten]
-                    onderweg = await _inzichten_onderweg(s, kennisbank_id)
-                else:
-                    bronnen = await zoek(
-                        s,
-                        kennisbank_id,
-                        zoekvraag,
-                        vector,
-                        settings.retrieval_candidates,
-                        settings.retrieval_top_k,
-                    )
-            bronnen_json = [b.as_dict(i) for i, b in enumerate(bronnen, start=1)]
+                gevonden = await zoek(
+                    s,
+                    kennisbank_id,
+                    zoekvraag,
+                    vector,
+                    settings.retrieval_candidates,
+                    settings.retrieval_top_k,
+                )
+                per_document = await zoek_per_document(
+                    s,
+                    kennisbank_id,
+                    vector,
+                    settings.chat_documenten,
+                    settings.chat_per_document,
+                )
+                # Eerst wat het vorige antwoord gebruikte, dan de beste treffers, dan de rest per
+                # document; daarna per document bij elkaar, zodat ze te vergelijken zijn.
+                fragmenten = per_document_bij_elkaar(
+                    _samen(
+                        await bronnen_bij(s, ids),
+                        [*gevonden, *per_document],
+                        settings.chat_max_fragmenten,
+                    ),
+                    lambda b: b.document_id,
+                )
+                inzichten = await zoek_inzichten(
+                    s,
+                    kennisbank_id,
+                    vector,
+                    settings.inzichten_in_antwoord,
+                    per_document=settings.inzichten_per_document_in_antwoord,
+                )
+            ctx = Context(fragmenten, inzichten, eerdere_inzichten)
+            bronnen_json = ctx.bronnen_json()
             yield _sse("bronnen", bronnen_json)
 
-            if modus == "inzichten" and not inzichten:
-                # Zonder inzichten valt er niets te kiezen; het model zou alleen gissen.
-                melding = (
-                    f"De inzichten voor {_documenten(onderweg)} worden nog gemaakt. Dat kan "
-                    "een paar minuten duren; probeer het daarna opnieuw."
-                    if onderweg
-                    else "Er zijn nog geen inzichten in deze kennisbank. Ze worden gemaakt "
-                    "zodra er documenten zijn verwerkt. Stel je vraag intussen als gewone vraag."
-                )
-                antwoord.append(melding)
-                yield _sse("token", melding)
-            else:
-                agent, prompt = (
-                    (inzicht_agent, vraag_met_inzichten(vraag, inzichten))
-                    if modus == "inzichten"
-                    else (antwoord_agent, vraag_met_bronnen(vraag, bronnen))
-                )
-                async with agent.run_stream(
-                    prompt, message_history=als_berichten(geschiedenis), model=chatmodel
-                ) as resultaat:
-                    async for token in resultaat.stream_text(delta=True, debounce_by=None):
-                        antwoord.append(token)
-                        yield _sse("token", token)
-                if onderweg:
-                    noot = (
-                        f"\n\nLet op: voor {_documenten(onderweg)} worden de inzichten nog "
-                        "gemaakt. Die tellen hier nog niet mee."
-                    )
-                    antwoord.append(noot)
-                    yield _sse("token", noot)
+            async with antwoord_agent.run_stream(
+                vraag_met_context(vraag, ctx),
+                message_history=als_berichten(geschiedenis),
+                model=chatmodel,
+            ) as resultaat:
+                async for token in resultaat.stream_text(delta=True, debounce_by=None):
+                    antwoord.append(token)
+                    yield _sse("token", token)
         except (AgentRunError, EmbedError) as e:
             log.warning("Fout van het taalmodel: %s", e)
             yield _sse("fout", {"detail": f"Het taalmodel gaf een fout: {e}"})

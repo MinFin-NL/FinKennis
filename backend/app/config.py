@@ -44,6 +44,17 @@ class Settings(BaseSettings):
     inzichten_gelijktijdig: int = 4
     inzichten_per_document: int = 20
     inzichten_in_antwoord: int = 25
+    # Zoveel inzichten per document in één antwoord, zodat er uit meer documenten iets komt.
+    inzichten_per_document_in_antwoord: int = 6
+
+    # Doorpraten: de bronnen waar eerdere antwoorden naar verwezen gaan mee, naast wat bij de
+    # nieuwe vraag gevonden wordt; samen hooguit chat_max_fragmenten.
+    chat_eerdere_bronnen: int = 8
+    # Daarnaast per document de beste fragmenten, uit de chat_documenten documenten die het best
+    # bij de vraag passen, zodat documenten te vergelijken zijn. 0 zet dit uit.
+    chat_documenten: int = 4
+    chat_per_document: int = 2
+    chat_max_fragmenten: int = 18
 
     cors_origins: list[str] = ["http://localhost:5190"]
 

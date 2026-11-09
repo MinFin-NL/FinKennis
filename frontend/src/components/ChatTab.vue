@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref } from 'vue';
-import { api, stelVraag, type Bericht, type Gesprek, type Kennisbank, type Modus } from '../api';
+import { api, stelVraag, type Bericht, type Gesprek, type Kennisbank } from '../api';
 import AntwoordTekst from './AntwoordTekst.vue';
 import BevestigDialog from './BevestigDialog.vue';
 
@@ -118,7 +118,7 @@ function koppelScroll() {
   gekoppeld = doel;
 }
 
-async function verstuur(vraag: string, modus: Modus = 'vraag') {
+async function verstuur(vraag: string) {
   if (bezig.value) return;
   fout.value = null;
   bezig.value = true;
@@ -128,8 +128,8 @@ async function verstuur(vraag: string, modus: Modus = 'vraag') {
       actief.value = await api.maakGesprek(props.kennisbank.id);
     }
     const nu = new Date().toISOString();
-    berichten.value.push({ id: `v-${nu}`, rol: 'user', modus, inhoud: vraag, bronnen: [], createdAt: nu });
-    berichten.value.push({ id: `a-${nu}`, rol: 'assistant', modus, inhoud: '', bronnen: [], createdAt: nu });
+    berichten.value.push({ id: `v-${nu}`, rol: 'user', modus: 'chat', inhoud: vraag, bronnen: [], createdAt: nu });
+    berichten.value.push({ id: `a-${nu}`, rol: 'assistant', modus: 'chat', inhoud: '', bronnen: [], createdAt: nu });
     // Via de reactieve array muteren, zodat Vue elke token ziet.
     const antwoord = berichten.value[berichten.value.length - 1];
     koppelScroll();
@@ -139,7 +139,6 @@ async function verstuur(vraag: string, modus: Modus = 'vraag') {
     await stelVraag(
       actief.value.id,
       vraag,
-      modus,
       {
         bronnen: (b) => (antwoord.bronnen = b),
         token: (t) => {
@@ -258,7 +257,7 @@ function datum(iso: string) {
           <nldd-activity-indicator
             v-if="!b.inhoud && bezig"
             size="24"
-            :text="b.modus === 'inzichten' ? 'Inzichten worden gekozen' : 'Antwoord wordt gemaakt'"
+            text="Antwoord wordt gemaakt"
             show-text
           ></nldd-activity-indicator>
           <AntwoordTekst :tekst="b.inhoud" />

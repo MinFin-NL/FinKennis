@@ -32,14 +32,21 @@ invulhulp; zie [Uitrollen naar Azure](#uitrollen-naar-azure).
   tot 50 MB per bestand. Slepen of kiezen. Ze worden op de achtergrond ingelezen; per document
   zie je de status, het aantal fragmenten en hoe ver de inzichten zijn. Hetzelfde bestand
   twee keer uploaden heeft geen effect: FinKennis herkent het aan zijn sha256.
-- **Vraag: feiten met bronnen.** Stel een vraag en krijg een gestreamd antwoord met
+- **Eén chat, feiten met bronnen.** Stel een vraag en krijg een gestreamd antwoord met
   genummerde verwijzingen. Onder het antwoord staan de bronnen: bestand, pagina, kopje en het
   stuk tekst zelf. Staat het antwoord niet in de documenten, dan zegt de assistent dat.
-- **Inzichten: wat valt op.** Na het inlezen leest het taalmodel elk document helemaal, sectie
-  voor sectie, ook de bijlagen. Het bewaart wat opvalt (cijfers, risico's, besluiten,
-  afwijkingen, tegenstrijdigheden) met de pagina's waar het op steunt. In de chat kies je de
-  modus "Inzichten" voor vragen als "wat valt op aan de risico's?". Per document bekijk je de
-  inzichten via het lampje bij Documenten.
+- **Inzichten: wat valt op, ook over documenten heen.** Na het inlezen leest het taalmodel elk
+  document helemaal, sectie voor sectie, ook de bijlagen. Het bewaart wat opvalt (cijfers,
+  risico's, besluiten, afwijkingen, tegenstrijdigheden) met de pagina's waar het op steunt.
+  Die inzichten gaan bij elke vraag mee, verspreid over de documenten. Vraag je wat er opvalt,
+  dan legt de assistent ook verbanden: wat terugkomt, wat verandert en wat elkaar tegenspreekt,
+  elk met bronnen uit de documenten zelf. Daarvoor krijgt hij ook per document de tekst die het
+  best bij de vraag past, zodat hij niet beperkt is tot wat vooraf als inzicht is bewaard. Per document bekijk je de inzichten via het lampje
+  bij Documenten.
+- **Doorpraten en meedenken.** Bij een vervolgvraag gaan de bronnen van het vorige antwoord
+  mee. Vraag je waarom iets zo is of wat het betekent, dan denkt de assistent ook mee met eigen
+  redenering en algemene kennis. Dat staat altijd apart, in een kader "Meedenken · niet uit de
+  documenten"; alles daarbuiten komt uit de documenten.
 - **Hybride zoeken.** Op betekenis (pgvector) en op trefwoorden (Nederlandse full-text),
   samengevoegd met Reciprocal Rank Fusion, zodat ook een exact artikelnummer gevonden wordt.
 - **Gesprekken.** Gesprekken blijven bewaard per kennisbank. Vervolgvragen als "en voor
@@ -61,7 +68,7 @@ invulhulp; zie [Uitrollen naar Azure](#uitrollen-naar-azure).
 **Antwoord met bronverwijzingen: bestand, pagina, kopje en het stuk tekst**
 ![Antwoord met bronnen](docs/screenshots/chat-antwoord.png)
 
-**Twee manieren om te vragen: Vraag (feiten uit de tekst) en Inzichten (wat valt op)**
+**Vragen in de chat (schermafbeelding van vóór de ene chat, met nog twee modi)**
 ![Vraag of Inzichten](docs/screenshots/vraag-of-inzichten.png)
 
 **Documenten uploaden, met de status van inlezen en inzichten per document**

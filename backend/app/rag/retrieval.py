@@ -4,7 +4,9 @@ geformuleerde vraag lijkt vaak meer op een inzicht dan op de letterlijke tekst, 
 de fragmenten waar dat inzicht op steunt mee."""
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TypeVar
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Chunk, Document, Inzicht
 
 RRF_K = 60
+
+T = TypeVar("T")
 
 
 @dataclass
@@ -89,6 +93,53 @@ async def zoek(
     return await _bronnen(session, beste, scores)
 
 
+async def zoek_per_document(
+    session: AsyncSession,
+    kennisbank_id: uuid.UUID,
+    vraag_vector: list[float],
+    documenten: int = 4,
+    per_document: int = 2,
+) -> list[Bron]:
+    """De beste fragmenten per document, uit de documenten die het best bij de vraag passen.
+
+    Gewoon zoeken geeft de beste fragmenten van de hele kennisbank, en die komen vaak uit één
+    document. Om documenten te vergelijken is per document de tekst over het onderwerp nodig.
+    De documenten staan op volgorde van hun beste fragment; het resultaat per document bij
+    elkaar. Dit zoekt exact (zonder HNSW-index), over alle fragmenten van de kennisbank."""
+    if documenten <= 0 or per_document <= 0:
+        return []
+    afstand = Chunk.embedding.cosine_distance(vraag_vector)
+    gerangschikt = (
+        select(
+            Chunk.id,
+            Chunk.document_id,
+            afstand.label("afstand"),
+            func.row_number().over(partition_by=Chunk.document_id, order_by=afstand).label("rang"),
+        )
+        .where(Chunk.kennisbank_id == kennisbank_id)
+        .subquery()
+    )
+    rows = (
+        await session.execute(
+            select(gerangschikt.c.id, gerangschikt.c.document_id, gerangschikt.c.afstand)
+            .where(gerangschikt.c.rang <= per_document)
+            .order_by(gerangschikt.c.afstand)
+        )
+    ).all()
+    # Op afstand gesorteerd, dus de eerste keer dat een document voorkomt is zijn beste fragment.
+    beste_documenten = list(dict.fromkeys(r.document_id for r in rows))[:documenten]
+    gekozen = per_document_bij_elkaar(
+        [r for r in rows if r.document_id in beste_documenten], lambda r: r.document_id
+    )
+    return await _bronnen(session, [r.id for r in gekozen], {})
+
+
+async def bronnen_bij(session: AsyncSession, chunk_ids: list[uuid.UUID]) -> list[Bron]:
+    """De fragmenten met deze ids, in deze volgorde. Wat niet meer bestaat (document
+    verwijderd), valt weg."""
+    return await _bronnen(session, chunk_ids, {})
+
+
 async def _bronnen(
     session: AsyncSession, beste: list[uuid.UUID], scores: dict[uuid.UUID, float]
 ) -> list[Bron]:
@@ -126,15 +177,53 @@ class GevondenInzicht:
     bron: Bron  # het eerste fragment waar het inzicht op steunt
 
 
+def per_document_bij_elkaar(items: list[T], document: Callable[[T], uuid.UUID]) -> list[T]:
+    """Zet items van hetzelfde document bij elkaar, in de volgorde waarin elk document voor
+    het eerst voorkomt; binnen een document blijft de volgorde gelijk."""
+    rang = {doc: n for n, doc in enumerate(dict.fromkeys(document(i) for i in items))}
+    return sorted(items, key=lambda i: rang[document(i)])
+
+
+def spreid_over_documenten(
+    geordend: list[uuid.UUID],
+    document_van: dict[uuid.UUID, uuid.UUID],
+    limiet: int,
+    per_document: int,
+) -> list[uuid.UUID]:
+    """Kiest de beste `limiet` uit `geordend` (beste eerst), maar hooguit `per_document` per
+    document, zodat één groot document niet alle plekken vult en er iets te vergelijken valt.
+    Blijven er plekken over (weinig documenten), dan vullen de overige ze alsnog.
+
+    Het resultaat staat per document bij elkaar (in de volgorde waarin elk document voor het
+    eerst voorkomt), en binnen een document op volgorde van `geordend`."""
+    gekozen: list[uuid.UUID] = []
+    over: list[uuid.UUID] = []
+    telling: dict[uuid.UUID, int] = {}
+    for iid in geordend:
+        if len(gekozen) == limiet:
+            break
+        doc = document_van[iid]
+        if telling.get(doc, 0) < per_document:
+            gekozen.append(iid)
+            telling[doc] = telling.get(doc, 0) + 1
+        else:
+            over.append(iid)
+    gekozen += over[: limiet - len(gekozen)]
+    return per_document_bij_elkaar(gekozen, document_van.__getitem__)
+
+
 async def zoek_inzichten(
     session: AsyncSession,
     kennisbank_id: uuid.UUID,
     vraag_vector: list[float],
     limiet: int = 25,
     kandidaten: int = 60,
+    per_document: int = 6,
 ) -> list[GevondenInzicht]:
     """Inzichten die bij de vraag passen. Een algemene vraag ('wat valt op?') lijkt op geen
-    enkel inzicht in het bijzonder; daarom telt het belang even zwaar als de gelijkenis."""
+    enkel inzicht in het bijzonder; daarom telt het belang even zwaar als de gelijkenis.
+    Ze komen per document bij elkaar terug, uit zoveel mogelijk documenten, zodat het model
+    verbanden tussen documenten kan zien."""
     await session.execute(text("SET LOCAL hnsw.iterative_scan = relaxed_order"))
     op_gelijkenis = (
         await session.scalars(
@@ -153,14 +242,19 @@ async def zoek_inzichten(
         )
     ).all()
     scores = rrf([list(op_gelijkenis), list(op_belang)])
-    beste = sorted(scores, key=scores.__getitem__, reverse=True)[:limiet]
-    if not beste:
+    if not scores:
         return []
 
     inzichten = {
-        i.id: i for i in await session.scalars(select(Inzicht).where(Inzicht.id.in_(beste)))
+        i.id: i for i in await session.scalars(select(Inzicht).where(Inzicht.id.in_(list(scores))))
     }
-    eerste = {iid: inzichten[iid].chunk_ids[0] for iid in beste if iid in inzichten}
+    geordend = sorted(
+        (iid for iid in scores if iid in inzichten), key=scores.__getitem__, reverse=True
+    )
+    beste = spreid_over_documenten(
+        geordend, {iid: i.document_id for iid, i in inzichten.items()}, limiet, per_document
+    )
+    eerste = {iid: inzichten[iid].chunk_ids[0] for iid in beste if inzichten[iid].chunk_ids}
     bronnen = {b.chunk_id: b for b in await _bronnen(session, list(set(eerste.values())), {})}
     return [
         GevondenInzicht(

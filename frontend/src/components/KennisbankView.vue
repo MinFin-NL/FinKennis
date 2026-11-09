@@ -122,7 +122,7 @@ function documentenGewijzigd(aantal: number) {
       :bezig="chat?.bezig ?? false"
       :vervolg="!!chat?.actief"
       :inzichten="inzichten"
-      @verstuur="(vraag, modus) => chat?.verstuur(vraag, modus)"
+      @verstuur="(vraag) => chat?.verstuur(vraag)"
       @stop="chat?.stop()"
     />
   </nldd-page>

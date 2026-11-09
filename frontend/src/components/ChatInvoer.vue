@@ -1,46 +1,30 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import type { InzichtenStatus, Modus } from '../api';
+import type { InzichtenStatus } from '../api';
 
 const props = defineProps<{ bezig: boolean; vervolg: boolean; inzichten: InzichtenStatus | null }>();
-const emit = defineEmits<{ verstuur: [vraag: string, modus: Modus]; stop: [] }>();
+const emit = defineEmits<{ verstuur: [vraag: string]; stop: [] }>();
 
-// Inzichten zijn vooraf uit de hele documenten gehaald; een vraag is dan optioneel.
-const STANDAARD_INZICHTVRAAG = 'Wat zijn de belangrijkste inzichten uit de documenten?';
-const modus = ref<Modus>('vraag');
-// De knop Inzichten blijft altijd klikbaar: een uitgeschakelde knop zegt niet waarom hij niet
-// werkt. Wie hem kiest terwijl er nog niets is, krijgt hieronder uitleg en de voortgang.
+// Er is één manier van vragen. Deze voorbeelden maken zichtbaar dat je ook kunt vragen wat er
+// opvalt over de documenten heen (daarvoor zijn de inzichten), niet alleen naar feiten.
+const SUGGESTIES = [
+  'Wat valt op over de documenten heen?',
+  "Welke risico's komen in meer documenten terug?",
+  'Waar spreken de documenten elkaar tegen?',
+];
+
 const secties = computed(() => {
   const s = props.inzichten;
   return s?.sectiesTotaal ? `${s.sectiesKlaar} van ${s.sectiesTotaal} secties gelezen` : null;
 });
 
-const nogGeenInzichten = computed(() =>
-  modus.value === 'inzichten' && props.inzichten !== null && !props.inzichten.aantalInzichten
-    ? {
-        tekst: props.inzichten.documentenOnderweg
-          ? 'De inzichten worden nog gemaakt'
-          : 'Er zijn nog geen inzichten in deze kennisbank',
-        uitleg: props.inzichten.documentenOnderweg
-          ? `Het taalmodel leest de documenten helemaal${secties.value ? ` (${secties.value})` : ''}, kleine documenten eerst. Zodra het eerste klaar is, kun je hier terecht. Gewone vragen kun je intussen wel stellen via Vraag.`
-          : props.inzichten.documentenMislukt
-            ? 'Het maken van de inzichten is mislukt. Probeer het opnieuw via Documenten, met het lampje bij een document.'
-            : 'Inzichten worden gemaakt zodra er documenten zijn verwerkt. Voeg eerst documenten toe.',
-      }
-    : null,
-);
-
-// Als er al inzichten zijn maar nog niet voor alle documenten.
+// Zolang niet alle documenten helemaal gelezen zijn, tellen die nog niet mee in wat opvalt.
 const voortgangTekst = computed(() => {
   const s = props.inzichten;
-  if (!s?.documentenOnderweg || !s.aantalInzichten || nogGeenInzichten.value) return null;
+  if (!s?.documentenOnderweg) return null;
   const docs = s.documentenOnderweg === 1 ? '1 document' : `${s.documentenOnderweg} documenten`;
-  return `Inzichten voor ${docs} worden nog gemaakt${secties.value ? ` (${secties.value})` : ''}; die tellen nog niet mee.`;
+  return `${docs} ${s.documentenOnderweg === 1 ? 'wordt' : 'worden'} nog helemaal gelezen${secties.value ? ` (${secties.value})` : ''}; wat daarin opvalt, telt nog niet mee.`;
 });
-
-const label = computed(() =>
-  modus.value === 'inzichten' ? 'Waar wil je inzichten over? (optioneel)' : 'Je vraag',
-);
 
 const vraag = ref('');
 // Bij elke verzending een nieuwe sleutel, zodat het veld echt leeg begint.
@@ -50,10 +34,9 @@ function waarde(e: Event): string {
   return (e as CustomEvent).detail?.value ?? (e.target as HTMLTextAreaElement)?.value ?? '';
 }
 
-function verstuur() {
-  const tekst = vraag.value.trim() || (modus.value === 'inzichten' ? STANDAARD_INZICHTVRAAG : '');
-  if (!tekst) return;
-  emit('verstuur', tekst, modus.value);
+function verstuur(tekst = vraag.value.trim()) {
+  if (!tekst || props.bezig) return;
+  emit('verstuur', tekst);
   vraag.value = '';
   veldKey.value++;
 }
@@ -69,68 +52,24 @@ function toets(e: KeyboardEvent) {
 
 <template>
   <nldd-container class="chat-invoer" padding="16" gap="8">
-    <nldd-container layout="row" gap="4" vertical-alignment="center">
-      <nldd-segmented-control
+    <nldd-container v-if="!vervolg" layout="wrap" gap="8">
+      <nldd-button
+        v-for="s in SUGGESTIES"
+        :key="s"
+        appearance="neutral-tinted"
         size="sm"
-        width="fit-content"
-        accessible-label="Soort vraag"
-        :value="modus"
-        @change="modus = ($event as CustomEvent).detail.value"
-      >
-        <nldd-segmented-control-item value="vraag" text="Vraag"></nldd-segmented-control-item>
-        <nldd-segmented-control-item value="inzichten" text="Inzichten"></nldd-segmented-control-item>
-      </nldd-segmented-control>
-      <!-- Een popover op klik in plaats van een tooltip op hover: de uitleg is te lang voor een
-           tooltip, en zo werkt hij ook met aanraken en het toetsenbord. -->
-      <nldd-icon-button
-        id="modus-uitleg-knop"
-        icon="info-circle"
-        appearance="neutral-transparent"
-        size="sm"
-        text="Wat is het verschil tussen Vraag en Inzichten?"
-        popovertarget="modus-uitleg"
-      ></nldd-icon-button>
-      <nldd-popover id="modus-uitleg" anchor="modus-uitleg-knop" placement="top-start" width="400px" accessible-label="Vraag of Inzichten">
-        <nldd-container padding="16" gap="12">
-          <nldd-title size="5" heading-level="2" text="Twee manieren om te vragen"></nldd-title>
-          <nldd-container gap="4">
-            <nldd-text weight="bold">Vraag: feiten uit de tekst</nldd-text>
-            <nldd-text size="sm">
-              Voor een bedrag, een datum of wat er over een onderwerp staat. De assistent zoekt de
-              passende stukken tekst op en antwoordt alleen met wat daar staat, met bronnen. Staat
-              het er niet, dan zegt hij dat. Niet bedoeld voor samenvattingen of "wat valt op?".
-            </nldd-text>
-          </nldd-container>
-          <nldd-container gap="4">
-            <nldd-text weight="bold">Inzichten: wat valt op</nldd-text>
-            <nldd-text size="sm">
-              Voor risico's, afwijkingen, besluiten en opvallende cijfers. Elk document is vooraf
-              helemaal gelezen, ook de bijlagen; de assistent kiest uit wat daaruit kwam. Je kunt
-              het leeg laten, een onderwerp noemen of doorvragen. Per document zie je de inzichten
-              ook bij Documenten, via het lampje.
-            </nldd-text>
-          </nldd-container>
-        </nldd-container>
-      </nldd-popover>
+        start-icon="sparkles"
+        :text="s"
+        @click="verstuur(s)"
+      ></nldd-button>
     </nldd-container>
-    <nldd-banner
-      v-if="nogGeenInzichten"
-      variant="accent"
-      icon="lightbulb"
-      :text="nogGeenInzichten.tekst"
-      :supporting-text="nogGeenInzichten.uitleg"
-    ></nldd-banner>
     <nldd-container v-if="voortgangTekst" layout="row" gap="8" vertical-alignment="center">
       <nldd-activity-indicator size="16"></nldd-activity-indicator>
       <nldd-text size="sm" color="secondary">{{ voortgangTekst }}</nldd-text>
     </nldd-container>
     <nldd-form-field
-      :label="vervolg && modus === 'vraag' ? 'Stel een vervolgvraag' : label"
-      :supporting-label="
-        modus === 'inzichten'
-          ? 'Wat valt op in de documenten. Laat leeg voor de belangrijkste inzichten, of noem een onderwerp.'
-          : 'Alleen feiten die in de documenten staan, met bronnen. Voor wat er opvalt: kies Inzichten.'
-      "
+      :label="vervolg ? 'Praat verder of stel een nieuwe vraag' : 'Je vraag'"
+      supporting-label="Feiten uit de documenten krijgen een bron. Vraag je waarom of wat iets betekent, dan denkt de assistent ook mee; dat staat apart."
     >
       <nldd-multi-line-text-field
         :key="veldKey"

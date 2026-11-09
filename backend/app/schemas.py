@@ -1,6 +1,5 @@
 import uuid
 from datetime import datetime
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -57,11 +56,6 @@ class GesprekIn(Schema):
 
 class BerichtIn(Schema):
     inhoud: str = Field(min_length=1, max_length=4000)
-    modus: Literal["vraag", "inzichten"] = Field(
-        default="vraag",
-        description="vraag: zoeken in de fragmenten. inzichten: kiezen uit de inzichten die "
-        "vooraf uit de hele documenten zijn gehaald.",
-    )
 
 
 class BerichtOut(Schema):

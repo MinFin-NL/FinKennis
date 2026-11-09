@@ -56,8 +56,8 @@ export interface Inzicht {
   bronnen: { chunkId: string; pagina: number | null; kopjes: string[]; fragment: string }[];
 }
 
-/** vraag: zoeken in fragmenten. inzichten: kiezen uit vooraf uit hele documenten gehaalde inzichten. */
-export type Modus = 'vraag' | 'inzichten';
+/** chat: de ene manier van vragen. vraag en inzichten komen alleen voor in oudere gesprekken. */
+export type Modus = 'chat' | 'vraag' | 'inzichten';
 
 export interface Bericht {
   id: string;
@@ -195,7 +195,6 @@ export interface StreamHandlers {
 export async function stelVraag(
   gesprekId: string,
   inhoud: string,
-  modus: Modus,
   on: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -206,7 +205,7 @@ export async function stelVraag(
   const resp = await fetch(`${BASE}/gesprekken/${gesprekId}/berichten`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ inhoud, modus }),
+    body: JSON.stringify({ inhoud }),
     signal,
   });
   if (!resp.ok || !resp.body) throw await toError(resp);

@@ -9,12 +9,28 @@ project volgt [Semantic Versioning](https://semver.org/lang/nl/).
 
 ### Toegevoegd
 
+- Eén chat in plaats van de modi Vraag en Inzichten. Bij elke vraag krijgt de assistent de
+  bronnen waar eerdere antwoorden naar verwezen (doorpraten), de gevonden fragmenten en de
+  inzichten, verspreid over de documenten (hooguit `INZICHTEN_PER_DOCUMENT_IN_ANTWOORD` per
+  document). Voorgestelde vragen boven het invoerveld. In te stellen met `CHAT_*`.
+- Verbanden tussen documenten: bij een vraag naar wat opvalt noemt de assistent wat terugkomt,
+  wat verandert en wat elkaar tegenspreekt, met bronnen uit elk document.
+- Zoeken per document: naast de beste treffers van de hele kennisbank krijgt de assistent per
+  document de beste fragmenten, uit de `CHAT_DOCUMENTEN` documenten die het best bij de vraag
+  passen (`CHAT_PER_DOCUMENT` per document). Zo kan hij documenten vergelijken op tekst, ook
+  over iets wat niet als inzicht bewaard is.
+- Meedenken: bij een waarom- of betekenisvraag mag de assistent eigen redenering en algemene
+  kennis geven, altijd apart onder "Meedenken" en in de chat getoond als "niet uit de
+  documenten". Feiten uit de documenten houden een bron.
+
 - Inzichten: na het verwerken leest het taalmodel elk document helemaal, sectie voor sectie,
   en bewaart de opvallende bevindingen (cijfers, risico's, besluiten, afwijkingen,
   tegenstrijdigheden) met de fragmenten waar ze op steunen. In de chat kiest de modus
   "Inzichten" daaruit, ook als een bevinding diep in een document staat. Gewone vragen
   vinden fragmenten nu ook via de inzichten. Bestaande documenten krijgen hun inzichten
   alsnog. In te stellen met `INZICHTEN_*`.
+- Eerdere antwoorden in het gesprek tellen niet meer als bron; bij een vervolgvraag telt
+  alleen wat de bronnen van dat moment zeggen.
 - Uitrollen naar Azure Container Apps via Azure DevOps (`azure-pipelines.yml`, `azure/main.bicep`),
   naast de invulhulp, met een eigen pgvector-database en de realm `finkennis` op de gedeelde
   Keycloak. Dockerfiles voor backend en frontend.

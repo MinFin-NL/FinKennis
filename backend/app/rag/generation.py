@@ -1,4 +1,6 @@
 import re
+import uuid
+from dataclasses import dataclass, field
 
 from pydantic_ai import Agent
 from pydantic_ai.messages import (
@@ -12,37 +14,48 @@ from pydantic_ai.models import Model
 
 from app.rag.retrieval import Bron, GevondenInzicht
 
-SYSTEEMPROMPT = """Je bent de assistent van FinKennis. Je beantwoordt vragen uitsluitend op basis \
-van de bronnen uit de kennisbank van de gebruiker.
+# Eén regel waarmee het model zijn eigen redenering begint. De frontend toont alles daarna
+# in een apart kader met 'Niet uit de documenten'.
+MEEDENKEN = "Meedenken:"
 
-Regels:
-- Gebruik alleen informatie uit de bronnen hieronder. Verzin niets.
-- Verwijs na elke bewering naar de bron(nen) met hun nummer, zo: [1] of [2][3].
-- Staat het antwoord niet in de bronnen, zeg dan eerlijk dat je het niet in de documenten kunt \
-vinden. Geef in dat geval geen antwoord uit eigen kennis.
-- Vraagt de gebruiker om inzichten, een samenvatting of wat er opvalt in een of meer documenten, \
-zeg dan dat je hier alleen losse feiten uit gevonden tekst geeft, en dat hij daarvoor onderaan \
-het scherm 'Inzichten' kan kiezen. Geef wel wat de bronnen hierover zeggen.
-- Antwoord in de taal van de vraag, standaard in het Nederlands. Schrijf helder en beknopt, \
+CHATPROMPT = """Je bent de assistent van FinKennis. Je praat met de gebruiker over de documenten \
+in de kennisbank. Je krijgt twee soorten genummerde bronnen:
+- Fragmenten: stukken tekst uit de documenten die bij de vraag of het gesprek passen, per \
+document bij elkaar. Ze komen uit de documenten die het best bij de vraag passen, ook als iets \
+daar niet als inzicht is bewaard.
+- Inzichten: bevindingen die vooraf uit de documenten zijn gehaald door elk document helemaal te \
+lezen, per document bij elkaar, met het stuk tekst waar ze op steunen.
+
+Feiten uit de documenten:
+- Alles wat je over de inhoud van de documenten zegt, komt uit de bronnen en krijgt het nummer \
+van de bron, zo: [1] of [2][3]. Verzin niets en laat een bron niets zeggen wat er niet staat.
+- Eerdere antwoorden in dit gesprek zijn geen bron. Herhaal iets uit het gesprek alleen als de \
+bronnen van nu het ook zeggen.
+- Staat het antwoord niet in de bronnen, zeg dat dan eerlijk.
+
+Kies de vorm die bij de vraag past:
+- Vraagt de gebruiker een feit (een bedrag, datum, regel), geef dan een kort antwoord met bron.
+- Vraagt de gebruiker wat er opvalt, om een overzicht of om inzichten, gebruik dan vooral de \
+inzichten. Groepeer per thema met het thema als **vetgedrukte** regel boven een opsomming, het \
+belangrijkste eerst, met de concrete cijfers en namen.
+- Kijk bij zo'n vraag ook naar verbanden tussen documenten: wat terugkomt in twee of meer \
+documenten, wat verandert tussen documenten (let op jaartallen) en waar documenten elkaar \
+tegenspreken. Zet die bovenaan onder **Verbanden tussen documenten**, noem de documenten en \
+verwijs naar bronnen uit elk document. Liever geen verband dan een gezocht verband.
+
+Zelf meedenken:
+- Vraagt de gebruiker waarom iets zo is, wat het betekent, wat de gevolgen kunnen zijn of wat \
+je zou doen, dan mag je meedenken met je eigen redenering en algemene kennis. Zet die altijd \
+aan het eind van je antwoord, na een regel die alleen bestaat uit '{MEEDENKEN}'. Alles na die \
+regel wordt getoond als 'niet uit de documenten'.
+- Geef eerst wat de documenten er zelf over zeggen (met bronnen); de redenering komt daarna. \
+Je mag in de redenering naar bronnen verwijzen waar je op voortbouwt.
+- Bij een gewone feitenvraag denk je niet mee: dan geen '{MEEDENKEN}'-deel.
+- Buiten dat deel gebruik je nooit eigen kennis.
+
+Antwoord in de taal van de vraag, standaard in het Nederlands. Schrijf helder en beknopt, \
 in B1-taal waar dat kan.
-"""
-
-INZICHTPROMPT = """Je bent de assistent van FinKennis. Je krijgt inzichten die vooraf uit de \
-documenten in de kennisbank zijn gehaald door elk document helemaal te lezen. Elk inzicht heeft \
-een nummer, een thema en een stuk van de tekst waar het op steunt.
-
-Regels:
-- Kies de inzichten die het best bij de vraag passen. Is de vraag algemeen ('wat valt op?'), \
-kies dan de belangrijkste.
-- Groepeer ze per thema, het belangrijkste eerst. Zet elk thema als **vetgedrukte** regel \
-boven een opsomming van de inzichten. Noem per inzicht de concrete cijfers en namen.
-- Verwijs na elk inzicht naar zijn nummer, zo: [1] of [2][3].
-- Gebruik alleen wat in de inzichten en de tekst eronder staat. Verzin niets.
-- Passen de inzichten niet bij de vraag, zeg dat dan eerlijk en stel voor de vraag als gewone \
-vraag te stellen.
-- Antwoord in de taal van de vraag, standaard in het Nederlands. Schrijf helder en beknopt, \
-in B1-taal waar dat kan.
-"""
+""".replace("{MEEDENKEN}", MEEDENKEN)
 
 
 HERSCHRIJFPROMPT = """Je herschrijft een vervolgvraag tot een zoekvraag voor een zoekmachine die \
@@ -86,8 +99,7 @@ def als_berichten(geschiedenis: list[tuple[str, str]]) -> list[ModelMessage]:
     return berichten
 
 
-antwoord_agent = Agent(name="antwoord", instructions=SYSTEEMPROMPT)
-inzicht_agent = Agent(name="inzichten", instructions=INZICHTPROMPT)
+antwoord_agent = Agent(name="antwoord", instructions=CHATPROMPT)
 herschrijf_agent = Agent(name="herschrijf", instructions=HERSCHRIJFPROMPT)
 
 
@@ -100,30 +112,71 @@ async def herschrijf(model: Model, vraag: str, geschiedenis: list[tuple[str, str
     return resultaat.output.strip() or vraag
 
 
-def bronnen_context(bronnen: list[Bron]) -> str:
-    if not bronnen:
-        return "Er zijn geen relevante bronnen gevonden in de kennisbank."
+@dataclass
+class Context:
+    """Wat het model bij een vraag te zien krijgt.
+
+    fragmenten: eerst de bronnen waar eerdere antwoorden naar verwezen, dan wat bij de vraag
+    gevonden is. inzichten: per document bij elkaar. eerdere_inzichten: per chunk-id het
+    inzicht dat er in een eerder antwoord bij hoorde."""
+
+    fragmenten: list[Bron]
+    inzichten: list[GevondenInzicht]
+    eerdere_inzichten: dict[uuid.UUID, str] = field(default_factory=dict)
+
+    def bronnen(self) -> list[Bron]:
+        """In de volgorde van de nummers in de prompt: eerst de fragmenten, dan de inzichten."""
+        return [*self.fragmenten, *(g.bron for g in self.inzichten)]
+
+    def bronnen_json(self) -> list[dict]:
+        uit = [b.as_dict(i) for i, b in enumerate(self.bronnen(), start=1)]
+        for d, b in zip(uit, self.fragmenten, strict=False):
+            if inzicht := self.eerdere_inzichten.get(b.chunk_id):
+                d["inzicht"] = inzicht
+        # Het inzicht bewaren, zodat een vervolgvraag weet waar het antwoord over ging.
+        for d, g in zip(uit[len(self.fragmenten) :], self.inzichten, strict=True):
+            d["inzicht"] = g.tekst
+        return uit
+
+
+def _kop(b: Bron) -> str:
+    kop = b.bestandsnaam
+    if b.pagina:
+        kop += f", pagina {b.pagina}"
+    return kop
+
+
+def vraag_met_context(vraag: str, ctx: Context) -> str:
+    nummer = 0
     delen = []
-    for i, b in enumerate(bronnen, start=1):
-        kop = f"[{i}] {b.bestandsnaam}"
-        if b.pagina:
-            kop += f", pagina {b.pagina}"
-        if b.kopjes:
-            kop += f" — {' > '.join(b.kopjes)}"
-        delen.append(f"{kop}\n{b.tekst}")
-    return "\n\n---\n\n".join(delen)
-
-
-def vraag_met_bronnen(vraag: str, bronnen: list[Bron]) -> str:
-    return f"Bronnen:\n\n{bronnen_context(bronnen)}\n\n---\n\nVraag: {vraag}"
-
-
-def vraag_met_inzichten(vraag: str, inzichten: list[GevondenInzicht]) -> str:
-    delen = []
-    for i, g in enumerate(inzichten, start=1):
-        kop = f"[{i}] {g.thema} ({g.soort}, belang {g.belang}) — {g.bron.bestandsnaam}"
-        if g.bron.pagina:
-            kop += f", pagina {g.bron.pagina}"
-        delen.append(f"{kop}\nInzicht: {g.tekst}\nUit de tekst: {g.bron.tekst[:600]}")
-    lijst = "\n\n---\n\n".join(delen)
-    return f"Inzichten:\n\n{lijst}\n\n---\n\nVraag: {vraag}"
+    if ctx.fragmenten:
+        regels = []
+        huidig = None
+        for b in ctx.fragmenten:
+            nummer += 1
+            if b.document_id != huidig:
+                huidig = b.document_id
+                regels.append(f"## Document: {b.bestandsnaam}")
+            kop = f"[{nummer}] {_kop(b)}"
+            if b.kopjes:
+                kop += f" — {' > '.join(b.kopjes)}"
+            inzicht = ctx.eerdere_inzichten.get(b.chunk_id)
+            tekst = f"Eerder inzicht hierover: {inzicht}\n{b.tekst}" if inzicht else b.tekst
+            regels.append(f"{kop}\n{tekst}")
+        delen.append("# Fragmenten\n\n" + "\n\n".join(regels))
+    if ctx.inzichten:
+        regels = []
+        huidig = None
+        for g in ctx.inzichten:
+            nummer += 1
+            if g.bron.document_id != huidig:
+                huidig = g.bron.document_id
+                regels.append(f"## Document: {g.bron.bestandsnaam}")
+            regels.append(
+                f"[{nummer}] {g.thema} ({g.soort}, belang {g.belang}) — {_kop(g.bron)}\n"
+                f"Inzicht: {g.tekst}\nUit de tekst: {g.bron.tekst[:600]}"
+            )
+        delen.append("# Inzichten\n\n" + "\n\n".join(regels))
+    if not delen:
+        delen.append("Er zijn geen bronnen gevonden in de kennisbank.")
+    return "\n\n---\n\n".join(delen) + f"\n\n---\n\nVraag: {vraag}"
