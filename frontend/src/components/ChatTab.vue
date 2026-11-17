@@ -1,10 +1,19 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref } from 'vue';
-import { api, stelVraag, type Bericht, type Gesprek, type Kennisbank } from '../api';
+import { api, stelVraag, type Bericht, type Gesprek, type InzichtenStatus, type Kennisbank } from '../api';
 import AntwoordTekst from './AntwoordTekst.vue';
 import BevestigDialog from './BevestigDialog.vue';
+import InzichtenVoortgang from './InzichtenVoortgang.vue';
 
-const props = defineProps<{ kennisbank: Kennisbank }>();
+const props = defineProps<{ kennisbank: Kennisbank; inzichten: InzichtenStatus | null }>();
+
+// Er is één manier van vragen. Deze voorbeelden maken zichtbaar dat je ook kunt vragen wat er
+// opvalt over de documenten heen (daarvoor zijn de inzichten), niet alleen naar feiten.
+const SUGGESTIES = [
+  'Wat valt op over de documenten heen?',
+  "Welke risico's komen in meer documenten terug?",
+  'Waar spreken de documenten elkaar tegen?',
+];
 const emit = defineEmits<{ naarDocumenten: [] }>();
 
 const gesprekken = ref<Gesprek[]>([]);
@@ -222,12 +231,31 @@ function datum(iso: string) {
       >
         <nldd-button slot="actions" appearance="primary" text="Documenten toevoegen" @click="emit('naarDocumenten')"></nldd-button>
       </nldd-inline-dialog>
-      <nldd-inline-dialog
-        v-else
-        icon="sparkles"
-        text="Stel een vraag over de documenten"
-        supporting-text="Vraag naar feiten, of naar wat opvalt over de documenten heen, zoals risico's en tegenstrijdigheden. Elk antwoord noemt de bronnen."
-      ></nldd-inline-dialog>
+      <!-- Uitleg, voorbeeldvragen en voortgang als één blok: de voorbeelden hangen af van de
+           inzichten, dus de voortgang hoort erbij. Niet in het slot van de inline-dialog: die
+           houdt zijn inhoud smal, dan komen de voorbeelden onder elkaar te staan. -->
+      <nldd-container v-else gap="16" horizontal-alignment="center">
+        <nldd-inline-dialog
+          icon="sparkles"
+          text="Stel een vraag over de documenten"
+          supporting-text="Vraag naar feiten, of naar wat opvalt over de documenten heen, zoals risico's en tegenstrijdigheden. Elk antwoord noemt de bronnen."
+        ></nldd-inline-dialog>
+        <nldd-container gap="16" max-width="760px">
+          <nldd-container layout="wrap" gap="8" horizontal-alignment="center">
+            <nldd-button
+              v-for="s in SUGGESTIES"
+              :key="s"
+              appearance="neutral-tinted"
+              size="sm"
+              start-icon="sparkles"
+              :text="s"
+              :disabled="bezig"
+              @click="verstuur(s)"
+            ></nldd-button>
+          </nldd-container>
+          <InzichtenVoortgang :status="inzichten" />
+        </nldd-container>
+      </nldd-container>
 
       <nldd-container v-if="gesprekken.length" gap="8">
         <nldd-title size="5" heading-level="2" text="Eerdere gesprekken"></nldd-title>

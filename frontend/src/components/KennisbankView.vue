@@ -112,7 +112,7 @@ function documentenGewijzigd(aantal: number) {
         </nldd-tab-bar>
       </nldd-container>
 
-      <ChatTab v-if="tab === 'chat'" ref="chat" :kennisbank="kennisbank" @naar-documenten="tab = 'documenten'" />
+      <ChatTab v-if="tab === 'chat'" ref="chat" :kennisbank="kennisbank" :inzichten="inzichten" @naar-documenten="tab = 'documenten'" />
       <DocumentenTab v-else :kennisbank="kennisbank" @gewijzigd="documentenGewijzigd" />
     </nldd-simple-section>
 
