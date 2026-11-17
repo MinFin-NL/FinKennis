@@ -13,17 +13,19 @@ const SUGGESTIES = [
   'Waar spreken de documenten elkaar tegen?',
 ];
 
-const secties = computed(() => {
-  const s = props.inzichten;
-  return s?.sectiesTotaal ? `${s.sectiesKlaar} van ${s.sectiesTotaal} secties gelezen` : null;
-});
-
 // Zolang niet alle documenten helemaal gelezen zijn, tellen die nog niet mee in wat opvalt.
-const voortgangTekst = computed(() => {
+// De gebruiker ziet documenten, geen secties: dat is een intern getal. De secties maken de
+// balk alleen vloeiend, zodat hij ook beweegt terwijl één groot document gelezen wordt.
+const voortgang = computed(() => {
   const s = props.inzichten;
   if (!s?.documentenOnderweg) return null;
-  const docs = s.documentenOnderweg === 1 ? '1 document' : `${s.documentenOnderweg} documenten`;
-  return `${docs} ${s.documentenOnderweg === 1 ? 'wordt' : 'worden'} nog helemaal gelezen${secties.value ? ` (${secties.value})` : ''}; wat daarin opvalt, telt nog niet mee.`;
+  const totaal = s.documentenKlaar + s.documentenOnderweg + s.documentenMislukt;
+  const deel = s.sectiesTotaal ? s.sectiesKlaar / s.sectiesTotaal : 0;
+  return {
+    totaal,
+    waarde: s.documentenKlaar + s.documentenMislukt + s.documentenOnderweg * deel,
+    tekst: `${s.documentenKlaar} van ${totaal} documenten`,
+  };
 });
 
 const vraag = ref('');
@@ -63,26 +65,29 @@ function toets(e: KeyboardEvent) {
         @click="verstuur(s)"
       ></nldd-button>
     </nldd-container>
-    <nldd-container v-if="voortgangTekst" layout="row" gap="8" vertical-alignment="center">
-      <nldd-activity-indicator size="16"></nldd-activity-indicator>
-      <nldd-text size="sm" color="secondary">{{ voortgangTekst }}</nldd-text>
-    </nldd-container>
-    <nldd-form-field
-      :label="vervolg ? 'Praat verder of stel een nieuwe vraag' : 'Je vraag'"
-      supporting-label="Feiten uit de documenten krijgen een bron. Vraag je waarom of wat iets betekent, dan denkt de assistent ook mee; dat staat apart."
-    >
+    <!-- Direct onder de voorbeeldvragen: juist die hangen af van de inzichten. -->
+    <nldd-progress-bar
+      v-if="voortgang"
+      size="sm"
+      text="Inzichten worden voorbereid. Vragen stellen kan al."
+      :max="voortgang.totaal"
+      :value="voortgang.waarde"
+      :value-text="voortgang.tekst"
+      :accessible-label="`Inzichten voorbereiden: ${voortgang.tekst} gelezen`"
+    ></nldd-progress-bar>
+    <!-- Weinig uitleg rond het veld: hoe het antwoord in elkaar zit (bronnen, meedenken) laat
+         het antwoord zelf zien, en Enter om te versturen verwacht iedereen al van een chat. -->
+    <nldd-form-field :label="vervolg ? 'Praat verder of stel een nieuwe vraag' : 'Je vraag'">
       <nldd-multi-line-text-field
         :key="veldKey"
         :value="vraag"
         rows="2"
         maxlength="4000"
+        :placeholder="vervolg ? 'Vraag verder…' : 'Stel een vraag over de documenten…'"
         @input="vraag = waarde($event)"
         @keydown="toets"
       ></nldd-multi-line-text-field>
-      <nldd-form-field-help-text>
-        Enter verstuurt, Shift+Enter voor een nieuwe regel. Antwoorden worden gemaakt door AI en
-        kunnen fouten bevatten. Controleer ze in de bronnen.
-      </nldd-form-field-help-text>
+      <nldd-form-field-help-text>Gemaakt door AI, kan fouten bevatten. Controleer de bronnen.</nldd-form-field-help-text>
     </nldd-form-field>
     <nldd-container layout="row" horizontal-alignment="right" gap="8">
       <nldd-button v-if="bezig" appearance="secondary" text="Stop" @click="emit('stop')"></nldd-button>

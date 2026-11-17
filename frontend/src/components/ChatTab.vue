@@ -226,7 +226,7 @@ function datum(iso: string) {
         v-else
         icon="sparkles"
         text="Stel een vraag over de documenten"
-        supporting-text="Kies onderaan wat je wilt. Vraag: feiten die in de documenten staan, met bronnen. Inzichten: wat er opvalt, zoals risico's, afwijkingen en besluiten, uit de hele documenten gehaald. Controleer belangrijke antwoorden altijd in het document zelf."
+        supporting-text="Vraag naar feiten, of naar wat opvalt over de documenten heen, zoals risico's en tegenstrijdigheden. Elk antwoord noemt de bronnen."
       ></nldd-inline-dialog>
 
       <nldd-container v-if="gesprekken.length" gap="8">
