@@ -41,7 +41,9 @@ class Settings(BaseSettings):
     # Inzichten: elk document wordt na het verwerken een keer helemaal gelezen.
     inzichten_enabled: bool = True
     inzichten_sectie_tokens: int = 3000
-    inzichten_gelijktijdig: int = 4
+    # Het chatmodel heeft een tokenlimiet per minuut die de chat ook gebruikt; met 4 tegelijk
+    # liep het inzichten maken daar tegenaan (429).
+    inzichten_gelijktijdig: int = 2
     inzichten_per_document: int = 20
     inzichten_in_antwoord: int = 25
     # Zoveel inzichten per document in één antwoord, zodat er uit meer documenten iets komt.

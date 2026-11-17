@@ -4,6 +4,7 @@ import re
 import uuid
 from typing import Annotated
 
+import openai
 from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic_ai.exceptions import AgentRunError
@@ -113,6 +114,24 @@ def _samen(eerder: list[Bron], nieuw: list[Bron], maximum: int) -> list[Bron]:
     return uit[:maximum]
 
 
+TE_DRUK = (
+    "Het taalmodel is op dit moment te druk (te veel vragen tegelijk). "
+    "Probeer het over een minuut opnieuw."
+)
+
+
+def _te_druk(e: Exception) -> bool:
+    """Een rate limit (429), van het chatmodel of van de embeddings. De SDK heeft dan al een
+    paar keer opnieuw geprobeerd."""
+    if getattr(e, "status_code", None) == 429:  # ModelHTTPError / ModelRateLimitError
+        return True
+    return isinstance(e.__cause__, openai.RateLimitError)  # EmbedError
+
+
+def _foutmelding(e: Exception) -> str:
+    return TE_DRUK if _te_druk(e) else f"Het taalmodel gaf een fout: {e}"
+
+
 def _sse(event: str, data) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
@@ -215,7 +234,7 @@ async def stel_vraag(
                     yield _sse("token", token)
         except (AgentRunError, EmbedError) as e:
             log.warning("Fout van het taalmodel: %s", e)
-            yield _sse("fout", {"detail": f"Het taalmodel gaf een fout: {e}"})
+            yield _sse("fout", {"detail": _foutmelding(e)})
             return
         except Exception:
             log.exception("Antwoord genereren mislukt")

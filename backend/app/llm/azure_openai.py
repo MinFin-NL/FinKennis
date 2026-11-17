@@ -12,14 +12,22 @@ from app.config import Settings
 from app.llm import EmbedError
 
 
+# De SDK probeert een 429 of time-out standaard 2 keer opnieuw, met een korte pauze (en
+# Retry-After als Azure die meestuurt). Bij een rate limit is dat te weinig.
+MAX_RETRIES = 6
+
+
 def chatmodel(settings: Settings) -> Model:
     # Geen temperature: de gpt-5-chatmodellen weigeren alles behalve de standaardwaarde.
     return OpenAIChatModel(
         settings.azure_openai_deployment,
         provider=AzureProvider(
-            azure_endpoint=settings.azure_openai_endpoint,
-            api_version=settings.azure_openai_api_version,
-            api_key=settings.azure_openai_api_key,
+            openai_client=openai.AsyncAzureOpenAI(
+                azure_endpoint=settings.azure_openai_endpoint,
+                api_version=settings.azure_openai_api_version,
+                api_key=settings.azure_openai_api_key,
+                max_retries=MAX_RETRIES,
+            )
         ),
     )
 
@@ -35,6 +43,7 @@ class AzureEmbedClient:
             api_version=settings.azure_openai_embedding_api_version,
             api_key=settings.azure_openai_embedding_api_key,
             timeout=120,
+            max_retries=MAX_RETRIES,
             http_client=httpx.AsyncClient(transport=transport) if transport else None,
         )
 

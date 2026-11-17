@@ -19,13 +19,14 @@
 // kan niet op Azure Files over SMB draaien (geen hard links, geen fsync op mappen).
 // Een schaalactie of platformonderhoud geeft Postgres dus een lege schijf. Daarom:
 //
-//   - pg-backup.sh dumpt de database elke nacht naar de share finkennis-pgbackup
-//     (een gewoon bestand schrijven kan SMB prima), en vlak voor elke deploy.
+//   - pg-backup.sh dumpt de database twee keer per dag (nacht en middag) naar de share
+//     finkennis-pgbackup (een gewoon bestand schrijven kan SMB prima), en vlak voor elke
+//     deploy. De laatste backupKeep dumps blijven staan.
 //   - pg-restore.sh zit in /docker-entrypoint-initdb.d. De postgres-image draait
 //     dat alleen na initdb, dus op een lege schijf, en zet dan de nieuwste dump
 //     terug voordat de backend kan verbinden.
 //
-// Na een herstart is hooguit wat er sinds de laatste dump (nacht of deploy) is gebeurd weg. De geüploade bestanden
+// Na een herstart is hooguit wat er sinds de laatste dump (hooguit een halve dag) is gebeurd weg. De geüploade bestanden
 // staan los daarvan op Azure Files.
 //
 // Een gewone deploy laat Postgres staan: het template is constant, dus zonder
@@ -60,8 +61,15 @@ aangemaakt, met het huidige wachtwoord. Leeg (standaard) houdt de draaiende
 database aan.''')
 param postgresRevisionSuffix string = ''
 
-@description('Cron-schema (UTC) van de databasebackup.')
-param backupCron string = '0 2 * * *'
+@description('Cron-schema (UTC) van de databasebackup: 02:00 en 12:00, zodat een herstart van Postgres hooguit een halve dag kost.')
+param backupCron string = '0 2,12 * * *'
+
+@description('''Zoveel dumps blijven op de share staan (nieuwste eerst), ook die van de deploys.
+Twee per dag plus de deploys: ruim twee weken terug. Een dump is ~10 MB, de share 64 GB.''')
+param backupKeep int = 40
+
+@description('Dagen dat een verwijderde share in de prullenbak van het storage account blijft.')
+param shareSoftDeleteDays int = 14
 
 @description('Basis-URL van de centrale Keycloak, bijvoorbeeld https://ca-keycloak-inno-d.<domein>.')
 param keycloakUrl string
@@ -154,6 +162,10 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
 resource fileService 'Microsoft.Storage/storageAccounts/fileServices@2023-05-01' = {
   parent: storage
   name: 'default'
+  properties: {
+    // Een per ongeluk verwijderde share (uploads of backups) is zo nog terug te halen.
+    shareDeleteRetentionPolicy: { enabled: true, days: shareSoftDeleteDays }
+  }
 }
 
 resource uploadsShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-05-01' = {
@@ -297,6 +309,7 @@ resource pgBackupJobs 'Microsoft.App/jobs@2024-03-01' = [for job in backupJobs: 
             { name: 'PGUSER', value: postgresUser }
             { name: 'PGPASSWORD', secretRef: 'db-pw' }
             { name: 'PGDATABASE', value: postgresDb }
+            { name: 'KEEP', value: string(backupKeep) }
           ]
           volumeMounts: [
             { volumeName: 'backup', mountPath: '/backup' }
@@ -391,6 +404,21 @@ resource backend 'Microsoft.App/containerApps@2024-03-01' = {
           volumeMounts: [
             { volumeName: 'uploads', mountPath: '/data/uploads' }
           ]
+          // Bij het starten draaien eerst de migraties en laadt docling zijn modellen; de
+          // standaard startup-probe (elke seconde) vulde de logs dan met ProbeFailed. Wacht
+          // eerst 20 s en geef daarna tot 5 minuten de tijd. TCP, niet /health: die roept
+          // Azure OpenAI aan, en een storing daar mag de backend niet laten herstarten.
+          probes: [
+            {
+              type: 'Startup'
+              tcpSocket: { port: 8000 }
+              initialDelaySeconds: 20
+              periodSeconds: 5
+              timeoutSeconds: 3
+              failureThreshold: 60
+            }
+            { type: 'Liveness', tcpSocket: { port: 8000 }, periodSeconds: 30, timeoutSeconds: 5, failureThreshold: 3 }
+          ]
         }
       ]
       volumes: [
@@ -441,9 +469,17 @@ resource frontend 'Microsoft.App/containerApps@2024-03-01' = {
           env: [
             { name: 'BACKEND_URL', value: backendUrl }
           ]
+          // Op 13 en 15 november 2026 haalde nginx de probe een paar keer niet binnen 5 s
+          // (een hapering van het platform, niet van nginx), en werd hij herstart. Pas na
+          // een minuut aanhoudend falen herstarten; uit de roulatie halen gaat wel snel.
+          probes: [
+            { type: 'Liveness', tcpSocket: { port: 80 }, periodSeconds: 10, timeoutSeconds: 5, failureThreshold: 6 }
+            { type: 'Readiness', tcpSocket: { port: 80 }, periodSeconds: 10, timeoutSeconds: 5, failureThreshold: 3 }
+          ]
         }
       ]
-      scale: { minReplicas: 1, maxReplicas: 3 }
+      // Twee replica's: hapert of herstart er één, dan neemt de ander het over.
+      scale: { minReplicas: 2, maxReplicas: 3 }
     }
   }
 }

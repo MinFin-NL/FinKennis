@@ -24,6 +24,11 @@ from app.rag.parsing import parse
 log = logging.getLogger(__name__)
 POLL_SECONDS = 2.0
 MAX_POGINGEN = 3
+# Inzichten mislukken vooral door een rate limit (429) op het chatmodel. Direct opnieuw
+# proberen helpt dan niet: op 5 november 2026 waren drie pogingen binnen 15 seconden op.
+# Daarom na elke mislukte poging steeds langer wachten (in seconden), samen bijna een uur.
+INZICHTEN_WACHTTIJDEN = (60, 300, 900, 1800)
+MAX_INZICHTEN_POGINGEN = len(INZICHTEN_WACHTTIJDEN) + 1
 
 
 async def claim_next(sessionmaker: async_sessionmaker) -> Document | None:
@@ -106,7 +111,9 @@ async def process_inzichten(
     embedder: EmbedClient,
     chatmodel: Model,
     settings: Settings,
-) -> None:
+) -> int:
+    """Maakt de inzichten van één document. Geeft 0 bij succes, anders het aantal pogingen
+    tot nu toe, zodat de worker weet hoe lang hij moet wachten."""
     try:
         async with sessionmaker() as session:
             chunks = (
@@ -183,8 +190,9 @@ async def process_inzichten(
                 )
             )
         log.info("Inzichten voor %s gemaakt: %d", doc.bestandsnaam, len(inzichten))
+        return 0
     except Exception as e:
-        # Vaak tijdelijk (rate limit, time-out): nog eens proberen, tot MAX_POGINGEN.
+        # Vaak tijdelijk (rate limit, time-out): later nog eens, tot MAX_INZICHTEN_POGINGEN.
         log.exception("Inzichten maken voor %s mislukt", doc.bestandsnaam)
         pogingen = doc.inzichten_pogingen + 1
         async with sessionmaker() as session, session.begin():
@@ -193,12 +201,18 @@ async def process_inzichten(
                 .where(Document.id == doc.id)
                 .values(
                     inzichten_status=DocumentStatus.wachtrij
-                    if pogingen < MAX_POGINGEN
+                    if pogingen < MAX_INZICHTEN_POGINGEN
                     else DocumentStatus.fout,
                     inzichten_pogingen=pogingen,
                     inzichten_foutmelding=str(e)[:1000],
                 )
             )
+        return pogingen
+
+
+def inzichten_wachttijd(pogingen: int) -> float:
+    """Hoe lang de inzichten-worker wacht na de zoveelste mislukte poging."""
+    return INZICHTEN_WACHTTIJDEN[min(pogingen, len(INZICHTEN_WACHTTIJDEN)) - 1]
 
 
 async def requeue_stuck(sessionmaker: async_sessionmaker) -> None:
@@ -249,11 +263,19 @@ async def run_inzichten_worker(
     sessionmaker: async_sessionmaker, embedder: EmbedClient, chatmodel: Model, settings: Settings
 ) -> None:
     """Een eigen lus naast run_worker: inzichten maken duurt minuten per document en mag
-    nieuwe uploads niet ophouden."""
+    nieuwe uploads niet ophouden.
+
+    Na een mislukte poging pauzeert de hele lus, niet alleen dat document: bij een rate limit
+    lopen de andere documenten er net zo goed tegenaan, en de chat deelt hetzelfde quotum."""
     while True:
         try:
             if doc := await claim_next_inzichten(sessionmaker):
-                await process_inzichten(doc, sessionmaker, embedder, chatmodel, settings)
+                if pogingen := await process_inzichten(
+                    doc, sessionmaker, embedder, chatmodel, settings
+                ):
+                    wacht = inzichten_wachttijd(pogingen)
+                    log.warning("Inzichten: %d s pauze na poging %d", wacht, pogingen)
+                    await asyncio.sleep(wacht)
                 continue
         except Exception:
             log.exception("Wachtrij voor inzichten lezen mislukt")

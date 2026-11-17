@@ -4,6 +4,7 @@ import json
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.function import FunctionModel
 
+from app.api.gesprekken import TE_DRUK
 from app.config import get_settings
 from app.db import SessionLocal
 from app.rag.ingest_worker import MAX_POGINGEN, claim_next, process, requeue_stuck
@@ -141,6 +142,22 @@ async def test_fout_van_het_taalmodel_wordt_gemeld(client, app):
     event, data = _sse_events(r.text)[-1]
     assert event == "fout"
     assert data["detail"].startswith("Het taalmodel gaf een fout")
+
+
+async def test_rate_limit_van_het_taalmodel_geeft_een_begrijpelijke_melding(client, app):
+    async def te_druk(messages, info):
+        raise ModelHTTPError(status_code=429, model_name="nep", body="rate_limit_exceeded")
+        yield ""
+
+    app.state.chatmodel = FunctionModel(stream_function=te_druk)
+    kb = (await client.post("/api/v1/kennisbanken", json={"naam": "HR"})).json()
+    gesprek = (await client.post(f"/api/v1/kennisbanken/{kb['id']}/gesprekken", json={})).json()
+    r = await client.post(f"/api/v1/gesprekken/{gesprek['id']}/berichten", json={"inhoud": "Hoi"})
+
+    event, data = _sse_events(r.text)[-1]
+    assert event == "fout"
+    assert data["detail"] == TE_DRUK
+    assert "rate_limit" not in data["detail"]
 
 
 async def test_onleesbaar_document_krijgt_status_fout(client, fake_ollama):

@@ -8,9 +8,11 @@ from app.db import SessionLocal
 from app.models import Bericht, Chunk, Inzicht
 from app.rag.generation import CHATPROMPT, MEEDENKEN
 from app.rag.ingest_worker import (
-    MAX_POGINGEN,
+    INZICHTEN_WACHTTIJDEN,
+    MAX_INZICHTEN_POGINGEN,
     claim_next,
     claim_next_inzichten,
+    inzichten_wachttijd,
     process,
     process_inzichten,
     requeue_stuck,
@@ -193,7 +195,7 @@ async def test_mislukte_inzichten_worden_opnieuw_geprobeerd(client, fake_ollama,
     while doc := await claim_next(SessionLocal):
         await process(doc, SessionLocal, fake_ollama, get_settings())
 
-    for _ in range(MAX_POGINGEN - 1):
+    for _ in range(MAX_INZICHTEN_POGINGEN - 1):
         doc = await claim_next_inzichten(SessionLocal)
         await process_inzichten(doc, SessionLocal, fake_ollama, fake_chat.model, get_settings())
         assert (await client.get(url)).json()[0]["inzichtenStatus"] == "wachtrij"
@@ -205,6 +207,14 @@ async def test_mislukte_inzichten_worden_opnieuw_geprobeerd(client, fake_ollama,
     assert "rate limit" in doc["inzichtenFoutmelding"]
     # Het document zelf blijft gewoon doorzoekbaar.
     assert doc["status"] == "gereed"
+
+
+def test_inzichten_wachten_steeds_langer_na_een_fout():
+    wachttijden = [inzichten_wachttijd(p) for p in range(1, MAX_INZICHTEN_POGINGEN)]
+    assert wachttijden == sorted(wachttijden)
+    assert wachttijden[0] >= 60
+    # Ook na meer pogingen dan er wachttijden zijn (bijv. na een herstart) geen IndexError.
+    assert inzichten_wachttijd(MAX_INZICHTEN_POGINGEN + 3) == INZICHTEN_WACHTTIJDEN[-1]
 
 
 async def test_afgebroken_inzichten_gaan_na_herstart_terug_in_de_wachtrij(
@@ -243,7 +253,7 @@ async def test_inzichten_opnieuw_maken(client, fake_ollama, fake_chat):
     fake_chat.bevindingen = lambda sectie: 1 / 0
     while d := await claim_next(SessionLocal):
         await process(d, SessionLocal, fake_ollama, get_settings())
-    for _ in range(MAX_POGINGEN):
+    for _ in range(MAX_INZICHTEN_POGINGEN):
         d = await claim_next_inzichten(SessionLocal)
         await process_inzichten(d, SessionLocal, fake_ollama, fake_chat.model, get_settings())
     assert (await client.get(url)).json()[0]["inzichtenStatus"] == "fout"
